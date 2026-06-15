@@ -1,0 +1,15 @@
+{
+  "name": "scruble-bot",
+  "version": "0.1.0",
+  "description": "Self-hosted skribbl.io bot that joins a lobby, guesses, and draws — headless Socket.IO client.",
+  "type": "module",
+  "module": "src/index.js",
+  "scripts": {
+    "start": "bun run src/index.js",
+    "dev": "bun --watch run src/index.js"
+  },
+  "dependencies": {
+    "@tensorflow/tfjs": "^4.22.0",
+    "socket.io-client": "^4.8.1"
+  }
+}
