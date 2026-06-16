@@ -132,6 +132,25 @@ With a trained generator the bot **draws learned words itself** (conditional
 Sketch-RNN, sampled stroke-by-stroke); QuickDraw replay stays the fallback for
 words it hasn't learned to draw yet.
 
+### One model (retire doodleNet)
+
+By default the color detector runs *alongside* doodleNet (the fixed 345-class
+grayscale baseline). To collapse to a **single custom model**, seed training with
+the QuickDraw dataset itself — the same data doodleNet learned from — so one model
+covers the 345 shapes *and* the harvested color/new words:
+
+```sh
+# fetch ~150 QuickDraw drawings per category as the shape base, + your harvest
+python train/train.py --quickdraw 150 --min-samples 200 --epochs 40
+BOT_VISION=0 BOT_MODELS=1 bun run src/index.js   # doodleNet off — your model only
+```
+
+QuickDraw is colorless, so its categories teach **shape** (rendered grayscale);
+the harvest adds **color** and new words on top. `gray_dropout` keeps the model
+working on a plain black-and-white drawing (verified: a monochrome tree → 90%).
+The vocabulary is the union of QuickDraw ∪ harvest and **grows every retrain** as
+you play.
+
 See [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for the full design.
 
 ## 📁 Project structure
@@ -158,8 +177,10 @@ src/
 train/            PyTorch pipeline (GPU) — harvest → clean → train → ONNX
   raster.py       strokes+colors → RGB 28×28 (byte-parity with src/canvas.js)
   dataset.py      load samples.ndjson → tensors + open-set vocab
+  quickdraw.py    fetch the QuickDraw base (seeds the single model — shape)
   llm_clean.py    vision-LLM figure/ground cleaning (Ollama)
   train_detector.py  color-aware CNN + gray-dropout → detector.onnx
+  train_generator.py conditional Sketch-RNN (LSTM+MDN) → generator.onnx
   train.py        autonomous loop (one-shot or --watch)
 data/
   wordlists/      skribbl word lists (per language)

@@ -23,12 +23,23 @@ def run_once(args):
     import train_detector as td
 
     samples = load_samples(HARVEST)
+    if os.environ.get("LLM_CLEAN", "0") == "1" and samples:
+        from llm_clean import clean
+        samples = clean(samples)
+
+    # Seed the single model with QuickDraw shape knowledge (the data doodleNet
+    # learned from); the harvest adds color + new words. QuickDraw is clean already
+    # so it skips the LLM step. With it on, a useful model trains from day one.
+    if args.quickdraw:
+        from quickdraw import categories_from_file, load_quickdraw
+        cats = categories_from_file(args.quickdraw_categories)
+        qd = load_quickdraw(cats, per_cat=args.quickdraw)
+        print(f"+ {len(qd)} QuickDraw samples across {len(cats)} categories")
+        samples = samples + qd
+
     if len(samples) < args.min_samples:
         print(f"only {len(samples)} samples (<{args.min_samples}) — skipping")
         return 0
-    if os.environ.get("LLM_CLEAN", "0") == "1":
-        from llm_clean import clean
-        samples = clean(samples)
 
     vocab = build_vocab(samples, args.min_per_word)
     if not vocab:
@@ -61,6 +72,10 @@ def main():
     p.add_argument("--gray", type=float, default=0.3, help="grayscale-augment probability (monochrome robustness)")
     p.add_argument("--generator", action="store_true", help="also train the Sketch-RNN drawer")
     p.add_argument("--gen-epochs", type=int, default=80)
+    p.add_argument("--quickdraw", type=int, default=0,
+                   help="QuickDraw samples per category to seed the single model (0 = harvest only)")
+    p.add_argument("--quickdraw-categories", default="data/doodlenet/class_names.txt",
+                   help="category list to pull from QuickDraw")
     p.add_argument("--watch", action="store_true", help="keep retraining as the harvest grows")
     p.add_argument("--interval", type=int, default=600, help="seconds between watch checks")
     p.add_argument("--min-new", type=int, default=20, help="new samples needed to retrain")

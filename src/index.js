@@ -95,15 +95,17 @@ function mergeVision(a, b) {
 }
 
 async function classifyNow() {
-  if (!doodle || !guesser || bot.isDrawing) return;
+  if (!guesser || bot.isDrawing) return;
   const grid = canvas.toGrid28();
   if (!grid) return;
-  let preds = mergeVision(doodle.classify(grid, 8), fewshot ? fewshot.match(grid, 5) : []);
-  // Fuse the from-scratch color-aware detector (sees the RGB canvas).
+  // doodleNet (grayscale 345) and the trained color detector are both optional;
+  // fuse whichever are present. Single-model mode = BOT_VISION=0 + BOT_MODELS=1.
+  let preds = doodle ? mergeVision(doodle.classify(grid, 8), fewshot ? fewshot.match(grid, 5) : []) : [];
   if (detector?.enabled) {
     const rgb = canvas.toRGB();
     if (rgb) preds = mergeVision(preds, await detector.classify(rgb, 8));
   }
+  if (!preds.length) return;
   guesser.setVision(preds);
   const top = preds.slice(0, 3).map((p) => `${p.label} ${(p.prob * 100).toFixed(0)}%`).join(', ');
   log(`   👁  sees: ${top}`);
@@ -111,7 +113,7 @@ async function classifyNow() {
 
 function startVision() {
   stopVision();
-  if (!doodle) return;
+  if (!doodle && !detector?.enabled) return;
   visionTimer = setInterval(classifyNow, 2500);
 }
 function stopVision() { if (visionTimer) clearInterval(visionTimer); visionTimer = null; }

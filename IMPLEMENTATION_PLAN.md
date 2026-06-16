@@ -56,6 +56,13 @@ not nearest-neighbour: genuine trained models.
   `Dockerfile.train`, `docker-compose.yml` (shared `./data`, GPU, host Ollama).
 - **ONNX export** uses the classic (`dynamo=False`) exporter → one self-contained
   file per model (atomic write, hot-reloadable, no external-data sidecar).
+- **Single-model consolidation** — `train/quickdraw.py` fetches the QuickDraw
+  dataset (the data doodleNet learned from) as a grayscale *shape* base; mixed
+  with the color harvest into one unified vocab via `train.py --quickdraw N`. Run
+  `BOT_VISION=0 BOT_MODELS=1` to retire doodleNet and use the single model. The
+  bot's vision is now source-agnostic (fuses whichever of doodleNet / detector are
+  present). Verified: a monochrome tree classifies at 90% from the QuickDraw-seeded
+  model.
 
 **Original plan (for reference):**
 
