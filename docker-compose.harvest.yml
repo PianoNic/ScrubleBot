@@ -15,9 +15,11 @@ services:
       context: .
       dockerfile: Dockerfile.bot
     environment:
-      - BOT_GUESS=0               # pure data collection — no guessing
-      - BOT_VISION=0              # no doodleNet
-      - BOT_MODELS=0              # no ONNX models
+      # Defaults = lightweight, silent harvesting. Override via env without editing
+      # this file, e.g.  BOT_GUESS=1 BOT_VISION=1 docker compose -f … up
+      - BOT_GUESS=${BOT_GUESS:-0}        # 1 = also guess in chat (needs vision)
+      - BOT_VISION=${BOT_VISION:-0}      # 1 = load doodleNet (heavier; needed to guess well)
+      - BOT_MODELS=${BOT_MODELS:-0}      # 1 = load the trained ONNX detector
       - BOT_LEARN=1              # harvest on
       - BOT_SHARD=1              # per-container harvest file
       - BOT_NAME_RANDOM=1        # believable human-ish name per bot
