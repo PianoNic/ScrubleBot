@@ -65,6 +65,26 @@ function recentDrawings(n = 24) {
   return out.sort((a, b) => b.ts - a.ts).slice(0, n);
 }
 
+function allDrawings(offset = 0, limit = 60, word = '') {
+  const wq = word.trim().toLowerCase();
+  const out = [];
+  for (const f of shardFiles()) {
+    try {
+      for (const line of readFileSync(DIR + f, 'utf8').split('\n')) {
+        if (!line.trim()) continue;
+        try {
+          const o = JSON.parse(line);
+          if (!Array.isArray(o.drawing)) continue;
+          if (wq && !String(o.word || '').toLowerCase().includes(wq)) continue;
+          out.push({ word: o.word, drawing: o.drawing, colors: o.colors || [], ts: o.ts || 0 });
+        } catch { /* skip */ }
+      }
+    } catch { /* skip */ }
+  }
+  out.sort((a, b) => b.ts - a.ts);
+  return { total: out.length, items: out.slice(offset, offset + limit) };
+}
+
 const json = (o) => new Response(JSON.stringify(o), { headers: { 'content-type': 'application/json' } });
 
 Bun.serve({
@@ -73,6 +93,7 @@ Bun.serve({
     const { pathname, searchParams } = new URL(req.url);
     if (pathname === '/api/stats') return json(await aggregate());
     if (pathname === '/api/drawings') return json(recentDrawings(Number(searchParams.get('n') || 24)));
+    if (pathname === '/api/all') return json(allDrawings(Number(searchParams.get('offset') || 0), Number(searchParams.get('limit') || 60), searchParams.get('word') || ''));
     return new Response(PAGE, { headers: { 'content-type': 'text/html; charset=utf-8' } });
   },
 });
@@ -107,6 +128,11 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .chip{background:var(--card);border:1px solid var(--border);border-radius:999px;padding:4px 11px;font-size:12px}
 .chip b{color:var(--accent2);font-variant-numeric:tabular-nums;margin-left:5px}
 .muted{color:var(--muted)}
+.search{width:100%;max-width:320px;background:var(--card);border:1px solid var(--border);border-radius:10px;
+padding:9px 12px;color:var(--fg);font-size:13px;margin-bottom:14px;outline:none}
+.search:focus{border-color:var(--accent2)}
+.btn{background:var(--card);border:1px solid var(--border);color:var(--fg);border-radius:10px;
+padding:9px 18px;font-size:13px;cursor:pointer}.btn:hover{border-color:var(--accent2)}
 </style></head><body><div class="wrap">
 <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px">
 <div><h1>🎨 ScrubleBot · Harvest</h1><div class="sub" id="updated">loading…</div></div>
@@ -121,10 +147,17 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 <div class="section"><h2>Most-harvested words</h2><div class="chips" id="top"></div></div>
 
 <div class="section"><h2>Recently harvested drawings</h2><div class="grid gallery" id="gallery"></div></div>
+
+<div class="section"><h2>All harvested drawings <span class="muted" id="allcount"></span></h2>
+<input id="search" class="search" placeholder="filter by word…" autocomplete="off">
+<div class="grid gallery" id="allgallery"></div>
+<div style="text-align:center;margin-top:16px"><button id="more" class="btn">Load more</button></div></div>
 </div>
 <script>
 const PAL=${JSON.stringify(PALETTE)};
 const pct=(a,b)=>b?Math.round(100*a/b)+'%':'—';
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const tile=d=>'<div class="tile">'+svg(d)+'<div class="w" title="'+esc(d.word)+'">'+esc(d.word)+'</div></div>';
 function svg(d){
   const S=d.drawing||[],C=d.colors||[];let xa=1e9,ya=1e9,xb=-1e9,yb=-1e9;
   for(const[xs,ys]of S){for(const x of xs){if(x<xa)xa=x;if(x>xb)xb=x;}for(const y of ys){if(y<ya)ya=y;if(y>yb)yb=y;}}
@@ -151,11 +184,23 @@ async function tick(){
       '</td><td class="num">'+(h.wins||0)+'</td><td class="num">'+pct(h.wins||0,h.guesses||0)+
       '</td><td><span class="badge'+(h.active?'':' off')+'">'+(h.active?'live':'idle')+'</span></td></tr>').join('')
       ||'<tr><td colspan="6" class="muted" style="padding:14px 12px">no harvesters yet</td></tr>';
-    document.getElementById('top').innerHTML=s.top.map(([w,c])=>'<span class="chip">'+w+'<b>'+c+'</b></span>').join('');
+    document.getElementById('top').innerHTML=s.top.map(([w,c])=>'<span class="chip">'+esc(w)+'<b>'+c+'</b></span>').join('');
     const ds=await (await fetch('/api/drawings?n=24')).json();
-    document.getElementById('gallery').innerHTML=ds.map(d=>'<div class="tile">'+svg(d)+'<div class="w" title="'+d.word+'">'+d.word+'</div></div>').join('')
-      ||'<div class="muted">nothing harvested yet</div>';
+    document.getElementById('gallery').innerHTML=ds.map(tile).join('')||'<div class="muted">nothing harvested yet</div>';
   }catch(e){document.getElementById('updated').textContent='error: '+e.message;}
 }
-tick();setInterval(tick,5000);
+// "All drawings" — paginated, on-demand, with a word filter.
+let off=0,word='',total=0;
+async function loadAll(reset){
+  if(reset){off=0;word=document.getElementById('search').value;document.getElementById('allgallery').innerHTML='';}
+  const r=await (await fetch('/api/all?offset='+off+'&limit=60&word='+encodeURIComponent(word))).json();
+  total=r.total;off+=r.items.length;
+  document.getElementById('allgallery').insertAdjacentHTML('beforeend',r.items.map(tile).join(''));
+  document.getElementById('allcount').textContent='('+total+')';
+  document.getElementById('more').style.display=off<total?'':'none';
+  if(total===0)document.getElementById('allgallery').innerHTML='<div class="muted">no matches</div>';
+}
+document.getElementById('more').onclick=()=>loadAll(false);
+let st;document.getElementById('search').oninput=()=>{clearTimeout(st);st=setTimeout(()=>loadAll(true),300);};
+tick();setInterval(tick,5000);loadAll(true);
 </script></body></html>`;
