@@ -14,6 +14,7 @@ import { learnedStrokes, harvestHas, FewShotDetector } from './learned.js';
 import { ColorDetector } from './onnx.js';
 import { SketchGenerator } from './sketchrnn.js';
 import { strokesToSegments } from './strokes.js';
+import { randomName } from './human.js';
 
 // Accept a custom lobby as a room code or a full invite URL
 // (e.g. "ABCD1234" or "https://skribbl.io/?ABCD1234"), via CLI arg or BOT_JOIN.
@@ -25,10 +26,9 @@ function parseRoomCode(input) {
 }
 
 const cliJoin = process.argv[2] && !process.argv[2].startsWith('-') ? process.argv[2] : '';
-// BOT_NAME_RANDOM=1 appends a short suffix so a fleet of bots don't share a name.
-const baseName = process.env.BOT_NAME || 'ScrubleBot';
+// BOT_NAME_RANDOM=1 → a believable human-ish name per bot (for a harvest fleet).
 const cfg = {
-  name: process.env.BOT_NAME_RANDOM === '1' ? `${baseName}${Math.random().toString(36).slice(2, 6)}` : baseName,
+  name: process.env.BOT_NAME_RANDOM === '1' ? randomName() : (process.env.BOT_NAME || 'ScrubleBot'),
   lang: Number(process.env.BOT_LANG ?? 0),
   create: Number(process.env.BOT_CREATE ?? 0),   // 1 = create a private room
   join: parseRoomCode(cliJoin || process.env.BOT_JOIN || ''), // room code/URL, '' = public
@@ -122,10 +122,12 @@ function startVision() {
 function stopVision() { if (visionTimer) clearInterval(visionTimer); visionTimer = null; }
 
 let shuttingDown = false;
+let lastLeftRoom = null;   // room we just left, to avoid matchmaking back into it
 // Intentionally leave the current game and matchmake into a fresh one (used by
 // harvest bots when it's their turn and they can't draw any offered word).
 function rejoinFresh(reason) {
   if (shuttingDown) return;
+  lastLeftRoom = bot.room?.id ?? lastLeftRoom;
   log(`🚪 leaving (${reason}) → new game`);
   guesser?.stop(); stopVision();
   try { bot.close(); } catch { /* already closed */ }
@@ -145,6 +147,13 @@ bot.on('disconnect', (r) => {
 });
 
 bot.on('lobby', (room) => {
+  // If matchmaking dropped us back into the room we just left, bounce again.
+  if (cfg.leaveUndrawable && room.id && room.id === lastLeftRoom) {
+    log(`   ↩ matchmade back into ${room.id} — leaving for a different lobby`);
+    rejoinFresh('same room');
+    return;
+  }
+  lastLeftRoom = null;
   log(`🏠 joined room ${room.id} (type ${room.type}) — ${room.users.length} players, me=#${room.me}`);
   log('   players:', room.users.map((u) => u.name).join(', '));
 });
