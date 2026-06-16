@@ -22,6 +22,7 @@ services:
       - BOT_SHARD=1              # per-container harvest file
       - BOT_NAME_RANDOM=1        # believable human-ish name per bot
       - BOT_LEAVE_UNDRAWABLE=1   # leave + rejoin when it can't draw its word
+      - BOT_START_DELAY=20       # stagger first join (random 0-20s) so the fleet doesn't thunder-herd matchmaking
     volumes:
       - ./data:/app/data
     restart: unless-stopped

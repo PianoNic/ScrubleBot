@@ -289,7 +289,29 @@ if (process.env.BOT_DEBUG === '1') {
 
 log('starting…', cfg);
 log(cfg.join ? `🔑 joining custom lobby "${cfg.join}"` : (cfg.create ? '🏗  creating private room' : '🌐 public matchmaking'));
-await bot.join({ create: cfg.create, join: cfg.join });
+
+// Stagger startup so a fleet doesn't all hit matchmaking at once (BOT_START_DELAY
+// = max random seconds to wait before the first join).
+const startDelay = Number(process.env.BOT_START_DELAY ?? 0);
+if (startDelay > 0) {
+  const d = Math.random() * startDelay;
+  log(`⏳ staggering start by ${d.toFixed(1)}s`);
+  await new Promise((r) => setTimeout(r, d * 1000));
+}
+
+// Resilient first join: matchmaking can rate-limit (esp. a fleet), so retry with
+// backoff + jitter instead of crashing the process.
+async function joinWithRetry() {
+  for (let attempt = 1; !shuttingDown; attempt++) {
+    try { await bot.join({ create: cfg.create, join: cfg.join }); return; }
+    catch (e) {
+      const wait = Math.min(30000, 1500 * attempt) + Math.floor(Math.random() * 1500);
+      log(`⚠️  join failed (${e?.message || e}) — retry ${attempt} in ${(wait / 1000).toFixed(0)}s`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+}
+await joinWithRetry();
 
 // Optional bounded run for testing: BOT_RUN_SECONDS=20 bun run src/index.js
 if (process.env.BOT_RUN_SECONDS) {
