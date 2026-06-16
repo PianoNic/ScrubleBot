@@ -46,3 +46,14 @@ export const PALETTE = [
 
 /** Canvas dimensions skribbl draws on (coordinate space for OP.DRAW). */
 export const CANVAS = { width: 800, height: 600 };
+
+/** Palette index → [r,g,b] in 0..1. Used by the color-aware raster (toRGB). */
+export const PALETTE_RGB = PALETTE.map((hex) => {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => c / 255);
+});
+
+/** Look up a palette index as [r,g,b] floats, defaulting to black (index 1). */
+export function colorRGB(index) {
+  return PALETTE_RGB[index] ?? PALETTE_RGB[1];
+}

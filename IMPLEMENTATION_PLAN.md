@@ -34,7 +34,25 @@ not nearest-neighbour: genuine trained models.
   proof the data is trainable (detector hit 4/4 on held-out drawings). These are
   **superseded** by the PyTorch pipeline below but kept as a CPU fallback.
 
-**To build (this plan):**
+**Now built (extends the original plan):**
+- **Color-aware harvest** — strokes recorded *with* per-stroke palette color
+  (`src/strokes.js` `segmentsToColoredStrokes`, `src/harvester.js`).
+- **RGB raster with parity** — `src/canvas.js` `toRGB()` ⇄ `train/raster.py`,
+  verified pixel-identical (max diff 1e-6).
+- **From-scratch color CNN** — `train/train_detector.py` trains on RGB and
+  exports `detector.onnx` + vocab; `src/onnx.js` loads & hot-reloads it, fused
+  into the guesser alongside doodleNet.
+- **Monochrome robustness** — `gray_dropout` desaturates a fraction of each batch
+  so the model works in black-and-white; color is a cue, not a crutch.
+- **Figure/ground cleaning** — `train/llm_clean.py` asks a local Ollama vision
+  model (e.g. `LFM2.5-VL-1.6B`) whether the word is the clear subject, dropping
+  scene-polluted samples. Fails open; skip with `LLM_CLEAN=0`.
+- **Autonomous loop + containers** — `train/train.py --watch`, `Dockerfile.bot`,
+  `Dockerfile.train`, `docker-compose.yml` (shared `./data`, GPU, host Ollama).
+- **Generator (drawing) is still QuickDraw replay** — the conditional Sketch-RNN
+  below remains future work; the detector half is done.
+
+**Original plan (for reference):**
 
 ### 1. Data contract  ✅ already produced by the bot
 `data/harvest/samples.ndjson`, one JSON object per line:

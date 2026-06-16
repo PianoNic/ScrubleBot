@@ -1,0 +1,8 @@
+.git
+.gitignore
+node_modules
+**/__pycache__
+data/harvest
+data/model
+*.md
+LICENSE

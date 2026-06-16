@@ -64,6 +64,8 @@ BOT_CREATE=1 bun run src/index.js                    # create a private room
 | `BOT_LANG` | `0` | language index (`0` = English) |
 | `BOT_GUESS` | `1` | set `0` to disable guessing |
 | `BOT_VISION` | `1` | set `0` to disable the canvas-vision guesser |
+| `BOT_LEARN` | `1` | set `0` to disable harvesting + few-shot detection |
+| `BOT_MODELS` | `0` | `1` = load the trained color-aware ONNX detector (no-op until trained) |
 | `BOT_RUN_SECONDS` | – | exit after N seconds (handy for testing) |
 
 ### 💡 Tip: only-drawable rooms
@@ -72,15 +74,60 @@ For a private game where the bot always draws something recognizable, set the ro
 **Custom words** to the contents of [`data/drawable_words.txt`](data/drawable_words.txt)
 (the 342 categories the bot can both draw *and* recognize) and tick **"Use custom words only."**
 
-## 🧠 Self-learning (in progress)
+## 🧠 Self-learning (color-aware, from scratch)
 
-While it plays, the bot **harvests** every drawing it watches (labelled by the word
-revealed at round-end) into `data/harvest/`. That data trains real neural networks
-that learn to **draw and detect new words** — including ones outside QuickDraw's 345.
+While it plays, the bot **harvests** every drawing it watches — labelled by the
+word revealed at round-end, **with each stroke's color** — into `data/harvest/`.
+A PyTorch trainer turns that into a **from-scratch color-aware CNN detector** that
+learns words *and* color semantics (brown + green ≈ a plant), exported to **ONNX**
+the Bun bot hot-loads while it runs. It complements doodleNet: doodleNet is the
+fast 345-class grayscale baseline; the learned model covers harvested/unknown words
+and uses color.
 
-Training runs in **PyTorch on the GPU** (the RTX 5080 / CUDA 13 is too new for
-tfjs's GPU bindings) and exports **ONNX** the Bun bot loads for inference. See
-[`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for the full design and roadmap.
+The loop, fully containerized (`docker compose up`):
+
+```
+ bot (Bun)  ──harvest (word, strokes, colors)──▶  data/harvest/samples.ndjson
+     ▲                                                      │
+     │ hot-reload detector.onnx                             ▼
+     │                                   trainer (PyTorch, GPU)
+     │                                   ├─ raster: strokes+colors → RGB 28×28 (parity w/ the bot)
+     │                                   ├─ clean: vision LLM drops scene-polluted samples (figure/ground)
+     │                                   ├─ train: CNN + gray-dropout (works in monochrome too)
+     └──── data/model/detector.onnx ◀────┴─ export ONNX + vocab
+```
+
+**Color is a cue, not a crutch.** Training randomly desaturates a fraction of each
+batch (`--gray`), so the detector recognizes the plain **black-and-white** drawing
+on shape alone, while still exploiting color when it helps.
+
+**Figure vs. ground.** Players draw a *scene* (a sea, a garden) around the actual
+word. A local **vision LLM** (Ollama — e.g. `LFM2.5-VL-1.6B`, llava, qwen2-vl)
+looks at each harvested drawing and drops the ones where the word isn't the clear
+subject, so the model learns *the thing*, not the backdrop. It fails open (keeps
+the sample) if the LLM is offline, and is skipped entirely with `LLM_CLEAN=0`.
+
+### Run it (Docker)
+
+```sh
+# Pull a vision model on the host first, e.g.:  ollama pull llava
+LLM_CLEAN=1 OLLAMA_VISION_MODEL=llava docker compose up --build
+```
+
+`bot` and `trainer` share `./data`: the bot harvests + hot-reloads, the trainer
+(GPU) retrains as the harvest grows. The trainer reaches host Ollama via
+`host.docker.internal`. **RTX 5080 (Blackwell)?** Build the trainer with a cu128
+base — see the note in [`Dockerfile.train`](Dockerfile.train).
+
+### Or train manually
+
+```sh
+pip install -r train/requirements.txt
+python train/train.py --min-samples 50 --epochs 40   # add --watch to retrain as data grows
+BOT_MODELS=1 bun run src/index.js                     # bot loads data/model/detector.onnx
+```
+
+See [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for the full design.
 
 ## 📁 Project structure
 
@@ -96,18 +143,26 @@ src/
   canvas.js       StrokeCanvas — op19 strokes → 28×28 bitmap
   strokes.js      shared op19 ⇄ polyline conversion + canvas fitting
   quickdraw.js    fetch & replay a real Quick, Draw! doodle as op19
-  harvester.js    record (word → drawing) while playing — learning data
+  harvester.js    record (word → drawing → colors) while playing — learning data
   learned.js      use harvested drawings (replay + few-shot) [interim]
-  model/          CPU prototype trainers (superseded by PyTorch — see plan)
+  onnx.js         load the trained color-aware detector (ONNX) + hot-reload
+  model/          CPU prototype trainers (superseded by train/ — see plan)
   drawer.js       word pick + placeholder fallback
   render-png.js   visualize op19 strokes as a PNG (debugging)
   index.js        entry point — wires it all together
+train/            PyTorch pipeline (GPU) — harvest → clean → train → ONNX
+  raster.py       strokes+colors → RGB 28×28 (byte-parity with src/canvas.js)
+  dataset.py      load samples.ndjson → tensors + open-set vocab
+  llm_clean.py    vision-LLM figure/ground cleaning (Ollama)
+  train_detector.py  color-aware CNN + gray-dropout → detector.onnx
+  train.py        autonomous loop (one-shot or --watch)
 data/
   wordlists/      skribbl word lists (per language)
   doodlenet/      doodleNet model + class names
   drawable_words.txt
   harvest/        harvested drawings (generated by playing; gitignored)
-  model/          trained models (generated; gitignored)
+  model/          trained detector.onnx + vocab (generated; gitignored)
+Dockerfile.bot · Dockerfile.train · docker-compose.yml
 ```
 
 ## 📡 Protocol (reverse-engineered)

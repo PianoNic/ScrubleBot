@@ -1,0 +1,24 @@
+# The trainer: PyTorch on the GPU — rasterizes the harvest, optionally cleans it
+# with a vision LLM, trains the color-aware detector, exports ONNX. Runs the
+# autonomous watch loop by default.
+#
+# The base image carries CUDA + PyTorch. The default suits most NVIDIA GPUs; for
+# an RTX 5080 (Blackwell, sm_120) override at build time with a cu128 image, e.g.
+#   docker build -f Dockerfile.train \
+#     --build-arg BASE_IMAGE=pytorch/pytorch:2.7.0-cuda12.8-cudnn9-runtime .
+ARG BASE_IMAGE=pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+FROM ${BASE_IMAGE}
+
+WORKDIR /app
+
+# torch ships in the base image; install the rest.
+COPY train/requirements.txt ./train/requirements.txt
+RUN pip install --no-cache-dir numpy onnx pillow
+
+COPY train ./train
+
+ENV HARVEST_FILE=/app/data/harvest/samples.ndjson \
+    MODEL_DIR=/app/data/model \
+    PYTHONUNBUFFERED=1
+
+CMD ["python", "train/train.py", "--watch"]

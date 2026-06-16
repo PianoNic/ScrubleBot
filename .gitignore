@@ -1,6 +1,10 @@
 # dependencies
 node_modules/
 
+# python
+__pycache__/
+*.pyc
+
 # secrets / local config
 .env
 .env.local
