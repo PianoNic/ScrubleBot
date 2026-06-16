@@ -12,6 +12,8 @@ import { doodleStrokes, getCategories } from './quickdraw.js';
 import { DoodleHarvester } from './harvester.js';
 import { learnedStrokes, harvestHas, FewShotDetector } from './learned.js';
 import { ColorDetector } from './onnx.js';
+import { SketchGenerator } from './sketchrnn.js';
+import { strokesToSegments } from './strokes.js';
 
 // Accept a custom lobby as a room code or a full invite URL
 // (e.g. "ABCD1234" or "https://skribbl.io/?ABCD1234"), via CLI arg or BOT_JOIN.
@@ -75,11 +77,14 @@ if (cfg.learn) {
 }
 
 // --- From-scratch color-aware detector (ONNX, trained on the harvest) -------
-let detector = null;
+let detector = null, generator = null;
 if (cfg.models) {
   detector = await new ColorDetector().load();
   if (detector.enabled) log(`🎨 color detector ready (${detector.labels.length} learned words)`);
   else log('🎨 color detector enabled but no trained model yet — will pick one up once trained');
+
+  generator = await new SketchGenerator().load();
+  if (generator.enabled) log(`🖌  sketch generator ready (${generator.meta.vocab.length} drawable words)`);
 }
 
 /** Merge doodleNet + few-shot predictions, keeping the max score per label. */
@@ -153,8 +158,18 @@ bot.on('yourTurnChoose', ({ time, data }) => {
 // the 345 categories; finally a placeholder.
 async function drawOurTurn(word) {
   let strokes = null, source = 'QuickDraw';
-  try { strokes = await doodleStrokes(word, { width: 8 }); }
-  catch (e) { log('   ⚠️  quickdraw fetch failed:', e?.message); }
+  // Prefer the learned generator when it knows the word (draws it itself);
+  // otherwise replay a real QuickDraw doodle, then a harvested one.
+  if (generator?.enabled && generator.knows(word)) {
+    try {
+      const drawing = await generator.draw(word);
+      if (drawing) { strokes = strokesToSegments(drawing, { width: 8 }); source = 'generator'; }
+    } catch (e) { log('   ⚠️  generator failed:', e?.message); }
+  }
+  if (!strokes) {
+    try { strokes = await doodleStrokes(word, { width: 8 }); }
+    catch (e) { log('   ⚠️  quickdraw fetch failed:', e?.message); }
+  }
   if (!strokes) { strokes = learnedStrokes(word, { width: 8 }); source = 'learned'; }
   if (!strokes) {
     log(`   ✍️  "${word}" unknown → placeholder`);
@@ -214,6 +229,9 @@ bot.on('roundEnd', ({ word, reason }) => {
   // The trainer writes a newer detector.onnx as the harvest grows — pick it up live.
   detector?.maybeReload().then((did) => {
     if (did) log(`   🔄 reloaded color detector (${detector.labels.length} learned words)`);
+  });
+  generator?.maybeReload().then((did) => {
+    if (did) log(`   🔄 reloaded sketch generator (${generator.meta.vocab.length} drawable words)`);
   });
   canvas.clear();
   log(`🔚 round end — word was "${word}" (reason ${reason})`);

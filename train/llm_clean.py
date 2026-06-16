@@ -6,11 +6,14 @@ the labelled word is actually the clear subject; scene-polluted samples are drop
 before training. Results are cached, and the step fails *open* (keeps the sample)
 whenever the LLM is unreachable, so training is never blocked.
 
-Needs a *vision* model (it looks at a picture): llava, qwen2-vl, llama3.2-vision,
-or LFM2.5-VL-1.6B. A text-only model (e.g. plain LFM2.5-1.2B) cannot do this step.
+Needs a *vision* model (it looks at a picture). Recommended: qwen2.5vl:7b — strong
+enough to reason about crude doodles and fits this JSON flow. Lighter fallbacks:
+moondream, llava, LFM2.5-VL-1.6B. A text-only model (e.g. plain LFM2.5-1.2B) can't
+do this step. (For true subject *cropping* rather than keep/drop, Florence-2 is the
+specialist, but it needs a separate integration.)
 
 Config via env: OLLAMA_URL (default http://localhost:11434/v1),
-OLLAMA_VISION_MODEL (default llava), OLLAMA_KEY (default 'ollama').
+OLLAMA_VISION_MODEL (default qwen2.5vl:7b), OLLAMA_KEY (default 'ollama').
 """
 
 import base64
@@ -23,7 +26,7 @@ import urllib.request
 from raster import to_png
 
 URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/v1")
-MODEL = os.environ.get("OLLAMA_VISION_MODEL", "llava")
+MODEL = os.environ.get("OLLAMA_VISION_MODEL", "qwen2.5vl:7b")
 KEY = os.environ.get("OLLAMA_KEY", "ollama")
 CACHE = os.environ.get("CLEAN_CACHE", "data/model/clean_cache.json")
 

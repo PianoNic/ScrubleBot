@@ -79,7 +79,7 @@ def export(net, vocab, out_dir):
         net, dummy, tmp,
         input_names=["input"], output_names=["logits"],
         dynamic_axes={"input": {0: "n"}, "logits": {0: "n"}},
-        opset_version=17,
+        opset_version=18, dynamo=False,  # classic exporter -> single self-contained file
     )
     os.replace(tmp, final)
     with open(os.path.join(out_dir, "detector.vocab.json"), "w") as f:

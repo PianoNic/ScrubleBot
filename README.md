@@ -102,16 +102,17 @@ batch (`--gray`), so the detector recognizes the plain **black-and-white** drawi
 on shape alone, while still exploiting color when it helps.
 
 **Figure vs. ground.** Players draw a *scene* (a sea, a garden) around the actual
-word. A local **vision LLM** (Ollama — e.g. `LFM2.5-VL-1.6B`, llava, qwen2-vl)
-looks at each harvested drawing and drops the ones where the word isn't the clear
-subject, so the model learns *the thing*, not the backdrop. It fails open (keeps
-the sample) if the LLM is offline, and is skipped entirely with `LLM_CLEAN=0`.
+word. A local **vision LLM** (Ollama — recommended `qwen2.5vl:7b`; lighter:
+`moondream`, `llava`, `LFM2.5-VL-1.6B`) looks at each harvested drawing and drops
+the ones where the word isn't the clear subject, so the model learns *the thing*,
+not the backdrop. It fails open (keeps the sample) if the LLM is offline, and is
+skipped entirely with `LLM_CLEAN=0`.
 
 ### Run it (Docker)
 
 ```sh
-# Pull a vision model on the host first, e.g.:  ollama pull llava
-LLM_CLEAN=1 OLLAMA_VISION_MODEL=llava docker compose up --build
+# Pull a vision model on the host first, e.g.:  ollama pull qwen2.5vl:7b
+LLM_CLEAN=1 OLLAMA_VISION_MODEL=qwen2.5vl:7b docker compose up --build
 ```
 
 `bot` and `trainer` share `./data`: the bot harvests + hot-reloads, the trainer
@@ -123,9 +124,13 @@ base — see the note in [`Dockerfile.train`](Dockerfile.train).
 
 ```sh
 pip install -r train/requirements.txt
-python train/train.py --min-samples 50 --epochs 40   # add --watch to retrain as data grows
-BOT_MODELS=1 bun run src/index.js                     # bot loads data/model/detector.onnx
+python train/train.py --min-samples 50 --epochs 40 --generator  # --watch to retrain as data grows
+BOT_MODELS=1 bun run src/index.js                               # loads detector.onnx + generator.onnx
 ```
+
+With a trained generator the bot **draws learned words itself** (conditional
+Sketch-RNN, sampled stroke-by-stroke); QuickDraw replay stays the fallback for
+words it hasn't learned to draw yet.
 
 See [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for the full design.
 
@@ -146,7 +151,7 @@ src/
   harvester.js    record (word → drawing → colors) while playing — learning data
   learned.js      use harvested drawings (replay + few-shot) [interim]
   onnx.js         load the trained color-aware detector (ONNX) + hot-reload
-  model/          CPU prototype trainers (superseded by train/ — see plan)
+  sketchrnn.js    sample the trained generator (ONNX) → op19 strokes
   drawer.js       word pick + placeholder fallback
   render-png.js   visualize op19 strokes as a PNG (debugging)
   index.js        entry point — wires it all together

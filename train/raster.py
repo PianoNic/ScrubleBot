@@ -89,7 +89,7 @@ def rasterize(drawing, colors=None, out=OUT):
     return np.transpose(small, (2, 0, 1)).copy()  # HWC -> CHW
 
 
-def to_png(drawing, colors=None, size=224):
+def to_png(drawing, colors=None, size=448):
     """Render a drawing to a PIL RGB image for the vision LLM (full-res, resized)."""
     from PIL import Image
     chw = rasterize(drawing, colors, out=HI)  # HI//HI = 1 -> full-res, valid reshape

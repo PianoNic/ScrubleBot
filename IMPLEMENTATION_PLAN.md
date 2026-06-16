@@ -47,10 +47,15 @@ not nearest-neighbour: genuine trained models.
 - **Figure/ground cleaning** — `train/llm_clean.py` asks a local Ollama vision
   model (e.g. `LFM2.5-VL-1.6B`) whether the word is the clear subject, dropping
   scene-polluted samples. Fails open; skip with `LLM_CLEAN=0`.
+- **Conditional Sketch-RNN generator** — `train/train_generator.py` trains a
+  class-conditioned LSTM + MDN decoder and exports the single decoder *step* to
+  `generator.onnx`; `src/sketchrnn.js` runs the autoregressive + MDN sampling loop
+  in Bun and becomes the **primary drawer** when it knows the word (QuickDraw replay
+  is the fallback). Enable training with `train.py --generator`.
 - **Autonomous loop + containers** — `train/train.py --watch`, `Dockerfile.bot`,
   `Dockerfile.train`, `docker-compose.yml` (shared `./data`, GPU, host Ollama).
-- **Generator (drawing) is still QuickDraw replay** — the conditional Sketch-RNN
-  below remains future work; the detector half is done.
+- **ONNX export** uses the classic (`dynamo=False`) exporter → one self-contained
+  file per model (atomic write, hot-reloadable, no external-data sidecar).
 
 **Original plan (for reference):**
 

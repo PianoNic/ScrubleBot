@@ -22,7 +22,7 @@ services:
     environment:
       - LLM_CLEAN=${LLM_CLEAN:-1}
       - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434/v1}
-      - OLLAMA_VISION_MODEL=${OLLAMA_VISION_MODEL:-llava}
+      - OLLAMA_VISION_MODEL=${OLLAMA_VISION_MODEL:-qwen2.5vl:7b}
     volumes:
       - ./data:/app/data
     extra_hosts:

@@ -42,6 +42,14 @@ def run_once(args):
     net = td.train(X, y, vocab, epochs=args.epochs, gray_p=args.gray)
     path = td.export(net, vocab, MODEL_DIR)
     print(f"exported {path}  ({len(vocab)} words, {len(X)} samples)")
+
+    if args.generator:
+        import train_generator as tg
+        gnet, scale = tg.train(samples, vocab, epochs=args.gen_epochs)
+        if gnet is not None:
+            gpath = tg.export(gnet, vocab, scale, MODEL_DIR)
+            print(f"exported {gpath}")
+
     return len(samples)
 
 
@@ -51,6 +59,8 @@ def main():
     p.add_argument("--min-per-word", type=int, default=3, help="min examples for a word to be learned")
     p.add_argument("--epochs", type=int, default=40)
     p.add_argument("--gray", type=float, default=0.3, help="grayscale-augment probability (monochrome robustness)")
+    p.add_argument("--generator", action="store_true", help="also train the Sketch-RNN drawer")
+    p.add_argument("--gen-epochs", type=int, default=80)
     p.add_argument("--watch", action="store_true", help="keep retraining as the harvest grows")
     p.add_argument("--interval", type=int, default=600, help="seconds between watch checks")
     p.add_argument("--min-new", type=int, default=20, help="new samples needed to retrain")
