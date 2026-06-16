@@ -142,7 +142,8 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .chip{background:var(--card);border:1px solid var(--border);border-radius:999px;padding:4px 11px;font-size:12px}
 .chip b{color:var(--accent2);font-variant-numeric:tabular-nums;margin-left:5px}
 .muted{color:var(--muted)}
-.tablecard{overflow-x:auto}table{min-width:460px}
+.link{color:var(--accent2);text-decoration:none}.link:hover{text-decoration:underline}
+.tablecard{overflow-x:auto}table{min-width:520px}
 @media(max-width:560px){
 .wrap{padding:18px 12px 48px}h1{font-size:18px}
 .cards{grid-template-columns:repeat(2,1fr);gap:10px;margin:18px 0}
@@ -185,7 +186,7 @@ padding:9px 18px;font-size:13px;cursor:pointer}.btn:hover{border-color:var(--acc
 </section>
 <section class="tab hidden" id="tab-bots">
 <div class="card tablecard" style="padding:4px 0">
-<table><thead><tr><th>Bot</th><th class="num">Rounds</th><th class="num">Guesses</th><th class="num">Wins</th><th class="num">Win/Guess</th><th>Status</th></tr></thead>
+<table><thead><tr><th>Bot</th><th class="num">Rounds</th><th class="num">Guesses</th><th class="num">Wins</th><th class="num">Win/Guess</th><th>Status</th><th>Lobby</th></tr></thead>
 <tbody id="bots"></tbody></table></div>
 <div style="text-align:center;margin-top:14px"><button id="botsmore" class="btn" style="display:none"></button></div>
 </section>
@@ -248,9 +249,9 @@ document.getElementById('wordsel').onchange=e=>{document.getElementById('search'
 let st;document.getElementById('search').oninput=()=>{clearTimeout(st);st=setTimeout(()=>{document.getElementById('wordsel').value='';setFilter(document.getElementById('search').value,false);},300);};
 // harvesters: top 6, rest behind a toggle
 let lastBots=[],botsExpanded=false;
-function botRow(h){return '<tr><td>'+esc(h.name||'?')+'</td><td class="num">'+(h.rounds||0)+'</td><td class="num">'+(h.guesses||0)+'</td><td class="num">'+(h.wins||0)+'</td><td class="num">'+pct(h.wins||0,h.guesses||0)+'</td><td><span class="badge'+(h.active?'':' off')+'">'+(h.active?'live':'idle')+'</span></td></tr>';}
+function botRow(h){return '<tr><td>'+esc(h.name||'?')+'</td><td class="num">'+(h.rounds||0)+'</td><td class="num">'+(h.guesses||0)+'</td><td class="num">'+(h.wins||0)+'</td><td class="num">'+pct(h.wins||0,h.guesses||0)+'</td><td><span class="badge'+(h.active?'':' off')+'">'+(h.active?'live':'idle')+'</span></td><td>'+(h.active&&h.room?'<a class="link" href="https://skribbl.io/?'+esc(h.room)+'" target="_blank" rel="noopener">join ↗</a>':'<span class="muted">—</span>')+'</td></tr>';}
 function renderBots(){
-  document.getElementById('bots').innerHTML=(botsExpanded?lastBots:lastBots.slice(0,6)).map(botRow).join('')||'<tr><td colspan="6" class="muted" style="padding:14px 12px">no harvesters yet</td></tr>';
+  document.getElementById('bots').innerHTML=(botsExpanded?lastBots:lastBots.slice(0,6)).map(botRow).join('')||'<tr><td colspan="7" class="muted" style="padding:14px 12px">no harvesters yet</td></tr>';
   const b=document.getElementById('botsmore');
   if(lastBots.length>6){b.style.display='';b.textContent=botsExpanded?'Show less':('Show all ('+lastBots.length+')');}else b.style.display='none';
 }

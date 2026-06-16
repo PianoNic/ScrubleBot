@@ -16,19 +16,17 @@ export function claimRoom(roomId) {
   if (!roomId) return true;
   try { if (!existsSync(DIR)) mkdirSync(DIR, { recursive: true }); } catch { return true; }
   const p = pathFor(roomId);
+  // clear a stale lock (crashed bot) first, then an atomic create is the ONLY arbiter:
+  // exactly one bot can win `wx`; everyone else gets a failure → leaves. No race.
+  try { if (existsSync(p) && Date.now() - statSync(p).mtimeMs > TTL) unlinkSync(p); } catch { /* ignore */ }
   try {
-    try {
-      writeFileSync(p, String(process.pid), { flag: 'wx' });            // atomic create
-    } catch {
-      if (Date.now() - statSync(p).mtimeMs <= TTL) return false;        // alive — taken by another bot
-      unlinkSync(p); writeFileSync(p, String(process.pid), { flag: 'wx' });  // reclaim a stale lock
-    }
-    const hb = setInterval(() => { try { utimesSync(p, new Date(), new Date()); } catch { /* gone */ } }, 20_000);
-    current = { path: p, hb };
-    return true;
+    writeFileSync(p, String(process.pid), { flag: 'wx' });
   } catch {
-    return true;   // on any error, don't falsely force a leave
+    return false;   // someone already holds this room → leave
   }
+  const hb = setInterval(() => { try { utimesSync(p, new Date(), new Date()); } catch { /* gone */ } }, 20_000);
+  current = { path: p, hb };
+  return true;
 }
 
 export function releaseRoom() {

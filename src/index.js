@@ -162,6 +162,7 @@ bot.on('disconnect', (r) => {
   guesser?.stop();
   stopVision();
   releaseRoom();
+  stats.set('room', '');
   log('❌ disconnected:', r);
   if (shuttingDown || r === 'io client disconnect') return;
   log('🔁 rejoining in 3s…');
@@ -182,6 +183,7 @@ bot.on('lobby', (room) => {
     return;
   }
   lastLeftRoom = null;
+  stats.set('room', room.id || '');   // surfaced on the dashboard as a join link
   log(`🏠 joined room ${room.id} (type ${room.type}) — ${room.users.length} players, me=#${room.me}`);
   log('   players:', room.users.map((u) => u.name).join(', '));
 });
