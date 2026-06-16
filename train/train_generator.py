@@ -95,19 +95,23 @@ class SketchRNN(nn.Module):
 
 
 def mdn_loss(params, target, lengths, m=M):
+    # Numerically stable bivariate MDN NLL: softplus sigmas (can't overflow like
+    # exp), rho clamped off ±1 (so 1-rho^2 never hits 0), mixture in log-space via
+    # logsumexp. This is what stops the loss exploding to nan after a while.
     B, T, _ = params.shape
-    pi, mux, muy, sx, sy, rho = torch.split(params[..., :6 * m], m, dim=-1)
+    pi_logits, mux, muy, sx_raw, sy_raw, rho_raw = torch.split(params[..., :6 * m], m, dim=-1)
     pen = params[..., 6 * m:]
-    pi = torch.softmax(pi, -1)
-    sx, sy = torch.exp(sx), torch.exp(sy)
-    rho = torch.tanh(rho)
+    log_pi = torch.log_softmax(pi_logits, -1)
+    sx = nn.functional.softplus(sx_raw) + 1e-3
+    sy = nn.functional.softplus(sy_raw) + 1e-3
+    rho = torch.tanh(rho_raw) * 0.95
     tx, ty = target[..., 0:1], target[..., 1:2]
-    omr = 1 - rho ** 2 + 1e-6
     zx, zy = (tx - mux) / sx, (ty - muy) / sy
+    omr = 1 - rho ** 2
     z = zx ** 2 + zy ** 2 - 2 * rho * zx * zy
-    prob = torch.exp(-z / (2 * omr)) / (2 * np.pi * sx * sy * torch.sqrt(omr))
-    gmm = (pi * prob).sum(-1)                                  # [B,T]
-    l_offset = -torch.log(gmm + 1e-6)
+    log_prob = (-z / (2 * omr)
+                - np.log(2 * np.pi) - torch.log(sx) - torch.log(sy) - 0.5 * torch.log(omr))
+    l_offset = -torch.logsumexp(log_pi + log_prob, dim=-1)
     l_pen = -(target[..., 2:5] * torch.log_softmax(pen, -1)).sum(-1)
     # mask out padding past each sequence's length
     mask = (torch.arange(T, device=params.device)[None, :] < lengths[:, None]).float()
