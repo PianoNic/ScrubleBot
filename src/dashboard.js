@@ -128,19 +128,25 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .chip{background:var(--card);border:1px solid var(--border);border-radius:999px;padding:4px 11px;font-size:12px}
 .chip b{color:var(--accent2);font-variant-numeric:tabular-nums;margin-left:5px}
 .muted{color:var(--muted)}
+.tablecard{overflow-x:auto}table{min-width:460px}
+@media(max-width:560px){
+.wrap{padding:18px 12px 48px}h1{font-size:18px}
+.cards{grid-template-columns:repeat(2,1fr);gap:10px;margin:18px 0}
+.stat{font-size:22px}.card{padding:13px}
+.gallery{grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:10px}
+.tile svg{height:90px}.section{margin-top:24px}
+}
 .search{width:100%;max-width:320px;background:var(--card);border:1px solid var(--border);border-radius:10px;
 padding:9px 12px;color:var(--fg);font-size:13px;margin-bottom:14px;outline:none}
 .search:focus{border-color:var(--accent2)}
 .btn{background:var(--card);border:1px solid var(--border);color:var(--fg);border-radius:10px;
 padding:9px 18px;font-size:13px;cursor:pointer}.btn:hover{border-color:var(--accent2)}
 </style></head><body><div class="wrap">
-<div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px">
 <div><h1>🎨 ScrubleBot · Harvest</h1><div class="sub" id="updated">loading…</div></div>
-<div id="online"></div></div>
 
 <div class="grid cards" id="cards"></div>
 
-<div class="section"><h2>Harvesters</h2><div class="card" style="padding:4px 0">
+<div class="section"><h2>Harvesters</h2><div class="card tablecard" style="padding:4px 0">
 <table><thead><tr><th>Bot</th><th class="num">Rounds</th><th class="num">Guesses</th><th class="num">Wins</th><th class="num">Win/Guess</th><th>Status</th></tr></thead>
 <tbody id="bots"></tbody></table></div></div>
 
@@ -170,7 +176,6 @@ function card(label,val,sub){return '<div class="card"><div class="label">'+labe
 async function tick(){
   try{
     const s=await (await fetch('/api/stats')).json();
-    document.getElementById('online').innerHTML='<span class="badge"><span class="dot"></span>'+s.online+' online</span>';
     document.getElementById('updated').textContent='updated '+new Date().toLocaleTimeString();
     document.getElementById('cards').innerHTML=
       card('Drawings',s.drawings.toLocaleString())+
