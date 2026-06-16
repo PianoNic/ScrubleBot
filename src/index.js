@@ -11,6 +11,9 @@ import { StrokeCanvas } from './canvas.js';
 import { doodleStrokes, getCategories } from './quickdraw.js';
 import { DoodleHarvester } from './harvester.js';
 import { learnedStrokes, harvestHas, FewShotDetector } from './learned.js';
+import { ColorDetector } from './onnx.js';
+import { SketchGenerator } from './sketchrnn.js';
+import { strokesToSegments } from './strokes.js';
 
 // Accept a custom lobby as a room code or a full invite URL
 // (e.g. "ABCD1234" or "https://skribbl.io/?ABCD1234"), via CLI arg or BOT_JOIN.
@@ -30,6 +33,7 @@ const cfg = {
   guess: process.env.BOT_GUESS !== '0',          // dictionary guesser on by default
   vision: process.env.BOT_VISION !== '0',        // doodleNet "look at the drawing" on by default
   learn: process.env.BOT_LEARN !== '0',          // harvest drawings + few-shot detection on by default
+  models: process.env.BOT_MODELS === '1',        // load the from-scratch color-aware ONNX detector
 };
 
 const ts = () => new Date().toISOString().slice(11, 19);
@@ -72,6 +76,17 @@ if (cfg.learn) {
   }
 }
 
+// --- From-scratch color-aware detector (ONNX, trained on the harvest) -------
+let detector = null, generator = null;
+if (cfg.models) {
+  detector = await new ColorDetector().load();
+  if (detector.enabled) log(`🎨 color detector ready (${detector.labels.length} learned words)`);
+  else log('🎨 color detector enabled but no trained model yet — will pick one up once trained');
+
+  generator = await new SketchGenerator().load();
+  if (generator.enabled) log(`🖌  sketch generator ready (${generator.meta.vocab.length} drawable words)`);
+}
+
 /** Merge doodleNet + few-shot predictions, keeping the max score per label. */
 function mergeVision(a, b) {
   const m = new Map();
@@ -79,11 +94,18 @@ function mergeVision(a, b) {
   return [...m.entries()].map(([label, prob]) => ({ label, prob })).sort((x, y) => y.prob - x.prob);
 }
 
-function classifyNow() {
-  if (!doodle || !guesser || bot.isDrawing) return;
+async function classifyNow() {
+  if (!guesser || bot.isDrawing) return;
   const grid = canvas.toGrid28();
   if (!grid) return;
-  const preds = mergeVision(doodle.classify(grid, 8), fewshot ? fewshot.match(grid, 5) : []);
+  // doodleNet (grayscale 345) and the trained color detector are both optional;
+  // fuse whichever are present. Single-model mode = BOT_VISION=0 + BOT_MODELS=1.
+  let preds = doodle ? mergeVision(doodle.classify(grid, 8), fewshot ? fewshot.match(grid, 5) : []) : [];
+  if (detector?.enabled) {
+    const rgb = canvas.toRGB();
+    if (rgb) preds = mergeVision(preds, await detector.classify(rgb, 8));
+  }
+  if (!preds.length) return;
   guesser.setVision(preds);
   const top = preds.slice(0, 3).map((p) => `${p.label} ${(p.prob * 100).toFixed(0)}%`).join(', ');
   log(`   👁  sees: ${top}`);
@@ -91,7 +113,7 @@ function classifyNow() {
 
 function startVision() {
   stopVision();
-  if (!doodle) return;
+  if (!doodle && !detector?.enabled) return;
   visionTimer = setInterval(classifyNow, 2500);
 }
 function stopVision() { if (visionTimer) clearInterval(visionTimer); visionTimer = null; }
@@ -138,8 +160,18 @@ bot.on('yourTurnChoose', ({ time, data }) => {
 // the 345 categories; finally a placeholder.
 async function drawOurTurn(word) {
   let strokes = null, source = 'QuickDraw';
-  try { strokes = await doodleStrokes(word, { width: 8 }); }
-  catch (e) { log('   ⚠️  quickdraw fetch failed:', e?.message); }
+  // Prefer the learned generator when it knows the word (draws it itself);
+  // otherwise replay a real QuickDraw doodle, then a harvested one.
+  if (generator?.enabled && generator.knows(word)) {
+    try {
+      const g = await generator.draw(word);
+      if (g) { strokes = strokesToSegments(g.drawing, { width: 8, colors: g.colors }); source = 'generator'; }
+    } catch (e) { log('   ⚠️  generator failed:', e?.message); }
+  }
+  if (!strokes) {
+    try { strokes = await doodleStrokes(word, { width: 8 }); }
+    catch (e) { log('   ⚠️  quickdraw fetch failed:', e?.message); }
+  }
   if (!strokes) { strokes = learnedStrokes(word, { width: 8 }); source = 'learned'; }
   if (!strokes) {
     log(`   ✍️  "${word}" unknown → placeholder`);
@@ -196,12 +228,25 @@ bot.on('roundEnd', ({ word, reason }) => {
     const r = harvester.finish(word);
     if (r.saved) log(`   🧠 learned "${r.word}" (${r.strokes} strokes) — ${r.total} drawings known`);
   }
+  // The trainer writes a newer detector.onnx as the harvest grows — pick it up live.
+  detector?.maybeReload().then((did) => {
+    if (did) log(`   🔄 reloaded color detector (${detector.labels.length} learned words)`);
+  });
+  generator?.maybeReload().then((did) => {
+    if (did) log(`   🔄 reloaded sketch generator (${generator.meta.vocab.length} drawable words)`);
+  });
   canvas.clear();
   log(`🔚 round end — word was "${word}" (reason ${reason})`);
 });
 
 // Surface anything we haven't mapped yet, to keep filling the protocol.
 bot.on('unknown', ({ id, data }) => log(`❓ unknown op${id}:`, String(JSON.stringify(data) ?? data).slice(0, 160)));
+
+// BOT_DEBUG=1 dumps every raw frame — use it in a live game to confirm the
+// still-unverified opcodes (15 guessed-correct, 21 clear) against real payloads.
+if (process.env.BOT_DEBUG === '1') {
+  bot.on('raw', ({ id, data }) => log(`🐛 op${id}:`, String(JSON.stringify(data)).slice(0, 200)));
+}
 
 log('starting…', cfg);
 log(cfg.join ? `🔑 joining custom lobby "${cfg.join}"` : (cfg.create ? '🏗  creating private room' : '🌐 public matchmaking'));

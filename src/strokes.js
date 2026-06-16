@@ -28,6 +28,32 @@ export function segmentsToStrokes(segments, tol = 2) {
   return strokes;
 }
 
+/**
+ * Like segmentsToStrokes, but also captures each stroke's palette color. A new
+ * stroke starts on a pen lift *or* a color change, so the per-stroke color is
+ * well-defined. This is what the harvester records so the trainer can rebuild a
+ * color-accurate RGB raster (brown trunk + green leaves ≈ tree).
+ * @returns {{drawing:number[][][], colors:number[]}} parallel arrays
+ */
+export function segmentsToColoredStrokes(segments, tol = 2) {
+  const drawing = [], colors = [];
+  let xs = null, ys = null, px = null, py = null, col = null;
+  const flush = () => { if (xs && xs.length > 1) { drawing.push([xs, ys]); colors.push(col); } };
+  for (const s of segments) {
+    if (!Array.isArray(s) || s.length < 7) continue;
+    if (s[0] !== TOOL.PEN || s[1] === 0) continue; // skip non-pen / white ink
+    const [, color, , x1, y1, x2, y2] = s;
+    if (xs === null || color !== col || Math.abs(x1 - px) > tol || Math.abs(y1 - py) > tol) {
+      flush();
+      xs = [x1]; ys = [y1]; col = color;
+    }
+    xs.push(x2); ys.push(y2);
+    px = x2; py = y2;
+  }
+  flush();
+  return { drawing, colors };
+}
+
 /** Bounding box over all points of a drawing, or null if empty. */
 export function bbox(drawing) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -44,7 +70,7 @@ export function bbox(drawing) {
  * strokes — each an array of [tool,color,width,x1,y1,x2,y2] segments.
  * @returns {number[][][]|null}
  */
-export function strokesToSegments(drawing, { color = 1, width = 8, targetSize = 540 } = {}) {
+export function strokesToSegments(drawing, { color = 1, width = 8, targetSize = 540, colors = null } = {}) {
   const bb = bbox(drawing);
   if (!bb) return null;
   const bw = Math.max(1, bb.maxX - bb.minX), bh = Math.max(1, bb.maxY - bb.minY);
@@ -55,12 +81,13 @@ export function strokesToSegments(drawing, { color = 1, width = 8, targetSize = 
   const ty = (y) => Math.round(y * scale + offY);
 
   const out = [];
-  for (const [xs, ys] of drawing) {
+  drawing.forEach(([xs, ys], si) => {
+    const c = colors?.[si] ?? color; // per-stroke color when provided, else the default
     const segs = [];
     for (let i = 1; i < xs.length; i++) {
-      segs.push([TOOL.PEN, color, width, tx(xs[i - 1]), ty(ys[i - 1]), tx(xs[i]), ty(ys[i])]);
+      segs.push([TOOL.PEN, c, width, tx(xs[i - 1]), ty(ys[i - 1]), tx(xs[i]), ty(ys[i])]);
     }
     if (segs.length) out.push(segs);
-  }
+  });
   return out.length ? out : null;
 }

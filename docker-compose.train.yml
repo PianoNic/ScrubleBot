@@ -1,0 +1,52 @@
+# Standalone GPU training. Builds a CUDA + PyTorch container, mounts a drive at
+# /app/data, trains the single color-aware model (QuickDraw shape base + your
+# harvest + Sketch-RNN generator), writes the ONNX models back to the drive, exits.
+#
+# Prerequisites on the host:
+#   - NVIDIA driver + NVIDIA Container Toolkit (so the container sees the GPU)
+#   - the mounted drive must contain data/doodlenet/class_names.txt (the QuickDraw
+#     category list) and, optionally, data/harvest/samples.ndjson — i.e. point
+#     DATA_DIR at this repo's ./data (the default) or a copy of it.
+#
+# Run:
+#   docker compose -f docker-compose.train.yml up --build
+#
+# Common overrides (env or a .env file):
+#   DATA_DIR=/mnt/bigdisk/scrubledata     # the mounted drive
+#   TRAIN_BASE_IMAGE=pytorch/pytorch:2.7.0-cuda12.8-cudnn9-runtime   # RTX 5080 / Blackwell
+#   QUICKDRAW=150  EPOCHS=40  MIN_SAMPLES=200
+#   LLM_CLEAN=1  OLLAMA_VISION_MODEL=qwen2.5vl:7b   # clean harvest via host Ollama
+services:
+  trainer:
+    build:
+      context: .
+      dockerfile: Dockerfile.train
+      args:
+        BASE_IMAGE: ${TRAIN_BASE_IMAGE:-pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime}
+    command:
+      - python
+      - train/train.py
+      - --quickdraw
+      - ${QUICKDRAW:-150}
+      - --min-samples
+      - ${MIN_SAMPLES:-200}
+      - --epochs
+      - ${EPOCHS:-40}
+      - --generator
+    environment:
+      - LLM_CLEAN=${LLM_CLEAN:-0}
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434/v1}
+      - OLLAMA_VISION_MODEL=${OLLAMA_VISION_MODEL:-qwen2.5vl:7b}
+      - HARVEST_FILE=/app/data/harvest/samples.ndjson
+      - MODEL_DIR=/app/data/model
+    volumes:
+      - ${DATA_DIR:-./data}:/app/data        # the mounted drive (CUDA is in the image)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # reach host Ollama for --clean
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

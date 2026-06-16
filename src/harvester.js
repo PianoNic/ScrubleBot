@@ -5,7 +5,7 @@
 // pairs that powers both drawing new words (replay) and detecting them (few-shot).
 
 import { appendFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
-import { segmentsToStrokes } from './strokes.js';
+import { segmentsToColoredStrokes } from './strokes.js';
 
 const DIR = new URL('../data/harvest/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 const FILE = `${DIR}samples.ndjson`;
@@ -44,11 +44,13 @@ export class DoodleHarvester {
     const key = word.toLowerCase();
     if ((this.counts.get(key) || 0) >= MAX_PER_WORD) return { saved: false };
 
-    const drawing = segmentsToStrokes(this.segments);
+    const { drawing, colors } = segmentsToColoredStrokes(this.segments);
     this.segments = [];
     if (!drawing.length) return { saved: false };
 
-    appendFileSync(FILE, JSON.stringify({ word: key, drawing, ts: Date.now() }) + '\n');
+    // `colors` (parallel to `drawing`) lets the trainer rebuild a color-accurate
+    // RGB raster; older samples without it default to black at train time.
+    appendFileSync(FILE, JSON.stringify({ word: key, drawing, colors, ts: Date.now() }) + '\n');
     this.counts.set(key, (this.counts.get(key) || 0) + 1);
     this.total++;
     return { saved: true, word: key, strokes: drawing.length, total: this.total };

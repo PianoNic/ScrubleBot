@@ -1,0 +1,6 @@
+# torch is provided by the CUDA base image in Dockerfile.train; listed here for
+# bare-metal runs. RTX 5080 (Blackwell) needs a cu128 build — see Dockerfile.train.
+torch
+numpy
+onnx
+pillow

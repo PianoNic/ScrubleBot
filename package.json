@@ -6,10 +6,15 @@
   "module": "src/index.js",
   "scripts": {
     "start": "bun run src/index.js",
-    "dev": "bun --watch run src/index.js"
+    "dev": "bun --watch run src/index.js",
+    "test": "bun test/smoke.js"
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.22.0",
+    "onnxruntime-node": "^1.26.0",
     "socket.io-client": "^4.8.1"
-  }
+  },
+  "trustedDependencies": [
+    "onnxruntime-node"
+  ]
 }

@@ -1,0 +1,50 @@
+# Two services sharing ./data: the bot harvests into it, the trainer trains from
+# it and writes detector.onnx back, the bot hot-reloads. The trainer reaches the
+# vision LLM (Ollama) on the host via host.docker.internal.
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    environment:
+      - BOT_NAME=${BOT_NAME:-ScrubleBot}
+      - BOT_JOIN=${BOT_JOIN:-}
+      - BOT_CREATE=${BOT_CREATE:-0}
+      - BOT_MODELS=1
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
+  trainer:
+    build:
+      context: .
+      dockerfile: Dockerfile.train
+    # Build the single model (QuickDraw shape base + harvest + generator), then
+    # keep retraining as you play. QUICKDRAW=0 disables the base (harvest only).
+    command:
+      - python
+      - train/train.py
+      - --watch
+      - --quickdraw
+      - ${QUICKDRAW:-150}
+      - --generator
+      - --min-samples
+      - ${MIN_SAMPLES:-50}
+      - --epochs
+      - ${EPOCHS:-40}
+    environment:
+      - LLM_CLEAN=${LLM_CLEAN:-1}
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434/v1}
+      - OLLAMA_VISION_MODEL=${OLLAMA_VISION_MODEL:-qwen2.5vl:7b}
+    volumes:
+      - ./data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
