@@ -65,7 +65,7 @@ function recentDrawings(n = 24) {
   return out.sort((a, b) => b.ts - a.ts).slice(0, n);
 }
 
-function allDrawings(offset = 0, limit = 60, word = '') {
+function allDrawings(offset = 0, limit = 60, word = '', exact = false) {
   const wq = word.trim().toLowerCase();
   const out = [];
   for (const f of shardFiles()) {
@@ -75,7 +75,7 @@ function allDrawings(offset = 0, limit = 60, word = '') {
         try {
           const o = JSON.parse(line);
           if (!Array.isArray(o.drawing)) continue;
-          if (wq && !String(o.word || '').toLowerCase().includes(wq)) continue;
+          if (wq) { const w = String(o.word || '').toLowerCase(); if (exact ? w !== wq : !w.includes(wq)) continue; }
           out.push({ word: o.word, drawing: o.drawing, colors: o.colors || [], ts: o.ts || 0 });
         } catch { /* skip */ }
       }
@@ -83,6 +83,19 @@ function allDrawings(offset = 0, limit = 60, word = '') {
   }
   out.sort((a, b) => b.ts - a.ts);
   return { total: out.length, items: out.slice(offset, offset + limit) };
+}
+
+function wordCounts() {
+  const counts = new Map();
+  for (const f of shardFiles()) {
+    try {
+      for (const line of readFileSync(DIR + f, 'utf8').split('\n')) {
+        if (!line.trim()) continue;
+        try { const w = JSON.parse(line).word; if (w) counts.set(w, (counts.get(w) || 0) + 1); } catch { /* skip */ }
+      }
+    } catch { /* skip */ }
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]);
 }
 
 const json = (o) => new Response(JSON.stringify(o), { headers: { 'content-type': 'application/json' } });
@@ -93,7 +106,8 @@ Bun.serve({
     const { pathname, searchParams } = new URL(req.url);
     if (pathname === '/api/stats') return json(await aggregate());
     if (pathname === '/api/drawings') return json(recentDrawings(Number(searchParams.get('n') || 24)));
-    if (pathname === '/api/all') return json(allDrawings(Number(searchParams.get('offset') || 0), Number(searchParams.get('limit') || 60), searchParams.get('word') || ''));
+    if (pathname === '/api/all') return json(allDrawings(Number(searchParams.get('offset') || 0), Number(searchParams.get('limit') || 60), searchParams.get('word') || '', searchParams.get('exact') === '1'));
+    if (pathname === '/api/words') return json(wordCounts());
     return new Response(PAGE, { headers: { 'content-type': 'text/html; charset=utf-8' } });
   },
 });
@@ -139,6 +153,8 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .search{width:100%;max-width:320px;background:var(--card);border:1px solid var(--border);border-radius:10px;
 padding:9px 12px;color:var(--fg);font-size:13px;margin-bottom:14px;outline:none}
 .search:focus{border-color:var(--accent2)}
+select.search{cursor:pointer}.filters{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+.filters .search{margin-bottom:0}
 .btn{background:var(--card);border:1px solid var(--border);color:var(--fg);border-radius:10px;
 padding:9px 18px;font-size:13px;cursor:pointer}.btn:hover{border-color:var(--accent2)}
 .top{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:13px 20px;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--border)}
@@ -167,7 +183,9 @@ padding:9px 18px;font-size:13px;cursor:pointer}.btn:hover{border-color:var(--acc
 <div style="text-align:center;margin-top:14px"><button id="botsmore" class="btn" style="display:none"></button></div>
 </section>
 <section class="tab hidden" id="tab-drawings">
-<input id="search" class="search" placeholder="filter by word…" autocomplete="off"><span class="muted" id="allcount" style="margin-left:8px"></span>
+<div class="filters"><select id="wordsel" class="search"><option value="">All words</option></select>
+<input id="search" class="search" placeholder="or type to filter…" autocomplete="off">
+<span class="muted" id="allcount"></span></div>
 <div class="grid gallery" id="allgallery" style="margin-top:14px"></div>
 <div style="text-align:center;margin-top:16px"><button id="more" class="btn">Load more</button></div>
 </section>
@@ -203,19 +221,23 @@ async function tick(){
     document.getElementById('gallery').innerHTML=ds.map(tile).join('')||'<div class="muted">nothing harvested yet</div>';
   }catch(e){document.getElementById('updated').textContent='error: '+e.message;}
 }
-// "All drawings" — paginated, on-demand, with a word filter.
-let off=0,word='',total=0;
+// "All drawings" — paginated, with a word dropdown + free-text filter.
+let off=0,word='',exact=false,total=0;
 async function loadAll(reset){
-  if(reset){off=0;word=document.getElementById('search').value;document.getElementById('allgallery').innerHTML='';}
-  const r=await (await fetch('/api/all?offset='+off+'&limit=60&word='+encodeURIComponent(word))).json();
+  if(reset){off=0;document.getElementById('allgallery').innerHTML='';}
+  const r=await (await fetch('/api/all?offset='+off+'&limit=60&word='+encodeURIComponent(word)+(exact?'&exact=1':''))).json();
   total=r.total;off+=r.items.length;
   document.getElementById('allgallery').insertAdjacentHTML('beforeend',r.items.map(tile).join(''));
   document.getElementById('allcount').textContent='('+total+')';
   document.getElementById('more').style.display=off<total?'':'none';
   if(total===0)document.getElementById('allgallery').innerHTML='<div class="muted">no matches</div>';
 }
+function setFilter(w,ex){word=w;exact=ex;loadAll(true);}
+async function fillWords(){try{const ws=await (await fetch('/api/words')).json();
+  document.getElementById('wordsel').innerHTML='<option value="">All words ('+ws.length+')</option>'+ws.map(([w,c])=>'<option value="'+esc(w)+'">'+esc(w)+' ('+c+')</option>').join('');}catch(e){}}
 document.getElementById('more').onclick=()=>loadAll(false);
-let st;document.getElementById('search').oninput=()=>{clearTimeout(st);st=setTimeout(()=>loadAll(true),300);};
+document.getElementById('wordsel').onchange=e=>{document.getElementById('search').value='';setFilter(e.target.value,true);};
+let st;document.getElementById('search').oninput=()=>{clearTimeout(st);st=setTimeout(()=>{document.getElementById('wordsel').value='';setFilter(document.getElementById('search').value,false);},300);};
 // harvesters: top 6, rest behind a toggle
 let lastBots=[],botsExpanded=false;
 function botRow(h){return '<tr><td>'+esc(h.name||'?')+'</td><td class="num">'+(h.rounds||0)+'</td><td class="num">'+(h.guesses||0)+'</td><td class="num">'+(h.wins||0)+'</td><td class="num">'+pct(h.wins||0,h.guesses||0)+'</td><td><span class="badge'+(h.active?'':' off')+'">'+(h.active?'live':'idle')+'</span></td></tr>';}
@@ -230,7 +252,7 @@ let loadedAll=false;const tabs=document.getElementById('tabs');
 tabs.onclick=e=>{const b=e.target.closest('button');if(!b)return;
   [...tabs.children].forEach(x=>x.classList.toggle('active',x===b));
   ['overview','bots','drawings'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden',t!==b.dataset.t));
-  if(b.dataset.t==='drawings'&&!loadedAll){loadedAll=true;loadAll(true);}
+  if(b.dataset.t==='drawings'&&!loadedAll){loadedAll=true;fillWords();loadAll(true);}
 };
 tick();setInterval(tick,5000);
 </script></body></html>`;
