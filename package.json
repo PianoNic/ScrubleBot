@@ -8,6 +8,7 @@
     "start": "bun run src/index.js",
     "dev": "bun --watch run src/index.js",
     "draw": "bun run src/draw.js",
+    "harvest": "bun run src/harvest-stats.js",
     "test": "bun test/smoke.js"
   },
   "dependencies": {
