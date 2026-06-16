@@ -9,10 +9,7 @@ export function pickProxy() {
   if (single) return single;
   const list = (process.env.BOT_PROXIES || '').split(',').map((s) => s.trim()).filter(Boolean);
   if (!list.length) return '';
-  const id = (process.env.BOT_INSTANCE || process.env.HOSTNAME || String(process.pid)).toString();
-  let h = 0;
-  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return list[h % list.length];
+  return list[Math.floor(Math.random() * list.length)];   // random each call → a dead free proxy just gets retried with another
 }
 
 /** Build an http(s)/socks agent for the websocket transport, or null. */
