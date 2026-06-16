@@ -4,12 +4,18 @@
 // public games this builds a growing dataset of real human (word → drawing)
 // pairs that powers both drawing new words (replay) and detecting them (few-shot).
 
-import { appendFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { segmentsToColoredStrokes } from './strokes.js';
 
 const DIR = new URL('../data/harvest/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
-const FILE = `${DIR}samples.ndjson`;
-const MAX_PER_WORD = 200; // bound disk growth per category
+// Each process writes its own shard when BOT_SHARD=1 (or BOT_INSTANCE is set), so
+// many harvest bots can run at once without corrupting a shared append file. The
+// trainer/loader read every `samples*.ndjson`.
+const SHARD = (process.env.BOT_INSTANCE
+  || (process.env.BOT_SHARD === '1' ? (process.env.HOSTNAME || process.pid) : ''))
+  .toString().replace(/[^A-Za-z0-9_-]/g, '');
+const FILE = `${DIR}samples${SHARD ? '.' + SHARD : ''}.ndjson`;
+const MAX_PER_WORD = 200; // bound disk growth per category (per shard)
 
 export class DoodleHarvester {
   constructor() {
@@ -21,14 +27,18 @@ export class DoodleHarvester {
   }
 
   _loadIndex() {
-    if (!existsSync(FILE)) return;
-    try {
-      for (const line of readFileSync(FILE, 'utf8').split('\n')) {
-        if (!line.trim()) continue;
-        const w = JSON.parse(line).word;
-        if (w) { this.counts.set(w, (this.counts.get(w) || 0) + 1); this.total++; }
-      }
-    } catch { /* ignore a partial file */ }
+    // count across all shards so the "harvested N" stat reflects the whole fleet
+    let files = [];
+    try { files = readdirSync(DIR).filter((f) => /^samples.*\.ndjson$/.test(f)); } catch { return; }
+    for (const f of files) {
+      try {
+        for (const line of readFileSync(DIR + f, 'utf8').split('\n')) {
+          if (!line.trim()) continue;
+          const w = JSON.parse(line).word;
+          if (w) { this.counts.set(w, (this.counts.get(w) || 0) + 1); this.total++; }
+        }
+      } catch { /* ignore a partial file */ }
+    }
   }
 
   startRound() { this.segments = []; }

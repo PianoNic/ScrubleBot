@@ -25,8 +25,10 @@ function parseRoomCode(input) {
 }
 
 const cliJoin = process.argv[2] && !process.argv[2].startsWith('-') ? process.argv[2] : '';
+// BOT_NAME_RANDOM=1 appends a short suffix so a fleet of bots don't share a name.
+const baseName = process.env.BOT_NAME || 'ScrubleBot';
 const cfg = {
-  name: process.env.BOT_NAME || 'ScrubleBot',
+  name: process.env.BOT_NAME_RANDOM === '1' ? `${baseName}${Math.random().toString(36).slice(2, 6)}` : baseName,
   lang: Number(process.env.BOT_LANG ?? 0),
   create: Number(process.env.BOT_CREATE ?? 0),   // 1 = create a private room
   join: parseRoomCode(cliJoin || process.env.BOT_JOIN || ''), // room code/URL, '' = public
@@ -34,6 +36,7 @@ const cfg = {
   vision: process.env.BOT_VISION !== '0',        // doodleNet "look at the drawing" on by default
   learn: process.env.BOT_LEARN !== '0',          // harvest drawings + few-shot detection on by default
   models: process.env.BOT_MODELS === '1',        // load the from-scratch color-aware ONNX detector
+  leaveUndrawable: process.env.BOT_LEAVE_UNDRAWABLE === '1', // on our turn, if we can't draw any offered word, leave for a fresh game
 };
 
 const ts = () => new Date().toISOString().slice(11, 19);
@@ -119,6 +122,16 @@ function startVision() {
 function stopVision() { if (visionTimer) clearInterval(visionTimer); visionTimer = null; }
 
 let shuttingDown = false;
+// Intentionally leave the current game and matchmake into a fresh one (used by
+// harvest bots when it's their turn and they can't draw any offered word).
+function rejoinFresh(reason) {
+  if (shuttingDown) return;
+  log(`🚪 leaving (${reason}) → new game`);
+  guesser?.stop(); stopVision();
+  try { bot.close(); } catch { /* already closed */ }
+  setTimeout(() => bot.join({ create: 0, join: '' }).catch((e) => log('rejoin failed:', e?.message)), 1500);
+}
+
 bot.on('server', ({ raw, origin, path }) => log('🛰  matchmaking →', raw, `(io ${origin} path ${path})`));
 bot.on('connect', () => log('🔌 connected, logging in as', cfg.name));
 bot.on('error', (e) => log('⚠️  error:', e?.message || e));
@@ -149,6 +162,15 @@ bot.on('turnStart', ({ drawerId, time }) =>
 
 bot.on('yourTurnChoose', ({ time, data }) => {
   const words = data?.words ?? [];
+  // Can we actually draw any of these? (QuickDraw category, harvested replay, or generator)
+  const canDrawAny = words.some((w) => {
+    const k = String(w).toLowerCase();
+    return drawable.has(k) || harvestHas(w) || (generator?.enabled && generator.knows(w));
+  });
+  if (cfg.leaveUndrawable && !canDrawAny) {
+    rejoinFresh(`our turn but can't draw ${JSON.stringify(words)}`);
+    return;
+  }
   const idx = pickWordIndex(words, rankByKey, drawable);
   const can = drawable.has(String(words[idx]).toLowerCase());
   log(`🎯 OUR TURN — choices ${JSON.stringify(words)} → picking "${words[idx]}"${can ? ' (drawable ✏️)' : ''}`);

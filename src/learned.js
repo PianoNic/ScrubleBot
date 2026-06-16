@@ -2,26 +2,29 @@
 // doesn't cover) and few-shot detection (recognize learned words by matching the
 // doodleNet "fingerprint" of the live canvas to harvested examples).
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { strokesToSegments } from './strokes.js';
 import { StrokeCanvas } from './canvas.js';
 
-const FILE = new URL('../data/harvest/samples.ndjson', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+const DIR = new URL('../data/harvest/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 
 let CACHE = null; // word -> drawing[] (lazy)
 
 function loadHarvest() {
   if (CACHE) return CACHE;
   CACHE = new Map();
-  if (!existsSync(FILE)) return CACHE;
-  for (const line of readFileSync(FILE, 'utf8').split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      const { word, drawing } = JSON.parse(line);
-      if (!word || !Array.isArray(drawing)) continue;
-      if (!CACHE.has(word)) CACHE.set(word, []);
-      CACHE.get(word).push(drawing);
-    } catch { /* skip */ }
+  if (!existsSync(DIR)) return CACHE;
+  const files = readdirSync(DIR).filter((f) => /^samples.*\.ndjson$/.test(f)); // every shard
+  for (const f of files) {
+    for (const line of readFileSync(DIR + f, 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const { word, drawing } = JSON.parse(line);
+        if (!word || !Array.isArray(drawing)) continue;
+        if (!CACHE.has(word)) CACHE.set(word, []);
+        CACHE.get(word).push(drawing);
+      } catch { /* skip */ }
+    }
   }
   return CACHE;
 }
