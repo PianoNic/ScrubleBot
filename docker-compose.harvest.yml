@@ -20,8 +20,7 @@ services:
       - BOT_MODELS=0              # no ONNX models
       - BOT_LEARN=1              # harvest on
       - BOT_SHARD=1              # per-container harvest file
-      - BOT_NAME=${BOT_NAME:-Scrub}
-      - BOT_NAME_RANDOM=1        # unique name per bot
+      - BOT_NAME_RANDOM=1        # believable human-ish name per bot
       - BOT_LEAVE_UNDRAWABLE=1   # leave + rejoin when it can't draw its word
     volumes:
       - ./data:/app/data
