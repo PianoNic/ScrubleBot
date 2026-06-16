@@ -114,7 +114,7 @@ def mdn_loss(params, target, lengths, m=M):
     return ((l_offset + l_pen) * mask).sum() / mask.sum().clamp(min=1)
 
 
-def train(samples, vocab, epochs=80, lr=1e-3, batch=64, device=None):
+def train(samples, vocab, epochs=80, lr=1e-3, batch=256, device=None):
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     built = build_sequences(samples, vocab)
     if built is None:
@@ -123,15 +123,22 @@ def train(samples, vocab, epochs=80, lr=1e-3, batch=64, device=None):
     print(f"generator: {len(X)} sequences, {len(vocab)} classes, scale {scale:.2f} on {device}")
     eye = torch.eye(len(vocab))
     Xt, Yt, Ct, Lt = map(torch.from_numpy, (X, Y, C, L))
+    if device == "cuda":
+        try:  # preload sequences to VRAM → no per-batch CPU→GPU copy
+            Xt, Yt, Ct, Lt, eye = (t.to(device) for t in (Xt, Yt, Ct, Lt, eye))
+        except RuntimeError:
+            torch.cuda.empty_cache()
+            print("  dataset too large for VRAM — streaming batches from RAM")
+    pdev = Xt.device
     net = SketchRNN(len(vocab)).to(device)
     opt = torch.optim.Adam(net.parameters(), lr=lr)
     n = len(Xt)
     for ep in range(epochs):
-        net.train(); perm = torch.randperm(n); total = 0.0
+        net.train(); perm = torch.randperm(n, device=pdev); total = 0.0
         for i in range(0, n, batch):
             idx = perm[i:i + batch]
             x = Xt[idx].to(device)
-            cond = eye[Ct[idx]][:, None, :].expand(-1, x.size(1), -1).to(device)
+            cond = eye[Ct[idx]][:, None, :].expand(-1, x.size(1), -1)
             params, _ = net(x, cond)
             loss = mdn_loss(params, Yt[idx].to(device), Lt[idx].to(device))
             opt.zero_grad(); loss.backward()
