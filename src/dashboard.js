@@ -251,9 +251,11 @@ let st;document.getElementById('search').oninput=()=>{clearTimeout(st);st=setTim
 let lastBots=[],botsExpanded=false;
 function botRow(h){return '<tr><td>'+esc(h.name||'?')+'</td><td class="num">'+(h.rounds||0)+'</td><td class="num">'+(h.guesses||0)+'</td><td class="num">'+(h.wins||0)+'</td><td class="num">'+pct(h.wins||0,h.guesses||0)+'</td><td><span class="badge'+(h.active?'':' off')+'">'+(h.active?'live':'idle')+'</span></td><td>'+(h.active&&h.room?'<a class="link" href="https://skribbl.io/?'+esc(h.room)+'" target="_blank" rel="noopener">join ↗</a>':'<span class="muted">—</span>')+'</td></tr>';}
 function renderBots(){
-  document.getElementById('bots').innerHTML=(botsExpanded?lastBots:lastBots.slice(0,6)).map(botRow).join('')||'<tr><td colspan="7" class="muted" style="padding:14px 12px">no harvesters yet</td></tr>';
+  const active=lastBots.filter(h=>h.active), idle=lastBots.filter(h=>!h.active);
+  const rows=botsExpanded?active.concat(idle):active;   // always show ALL active; idle behind the toggle
+  document.getElementById('bots').innerHTML=rows.map(botRow).join('')||'<tr><td colspan="7" class="muted" style="padding:14px 12px">no active harvesters</td></tr>';
   const b=document.getElementById('botsmore');
-  if(lastBots.length>6){b.style.display='';b.textContent=botsExpanded?'Show less':('Show all ('+lastBots.length+')');}else b.style.display='none';
+  if(idle.length){b.style.display='';b.textContent=botsExpanded?('Hide '+idle.length+' idle'):('Show '+idle.length+' idle');}else b.style.display='none';
 }
 document.getElementById('botsmore').onclick=()=>{botsExpanded=!botsExpanded;renderBots();};
 // tabs
