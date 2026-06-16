@@ -30,7 +30,7 @@ services:
     restart: unless-stopped
 
   # Always-on dashboard (one container): live stats + the harvested drawings.
-  # Open http://localhost:8080 (set DASHBOARD_PORT to change).
+  # Open http://localhost:28080 (set DASHBOARD_PORT to change).
   dashboard:
     build:
       context: .
@@ -39,7 +39,7 @@ services:
     environment:
       - PORT=8080
     ports:
-      - "${DASHBOARD_PORT:-8080}:8080"
+      - "${DASHBOARD_PORT:-28080}:8080"
     volumes:
       - ./data:/app/data
     restart: unless-stopped

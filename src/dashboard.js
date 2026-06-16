@@ -1,14 +1,14 @@
 // Harvest dashboard — a tiny Bun server (no build step) serving a single
 // shadcn-styled page: live stats, the running harvesters, and a gallery of the
 // drawings already collected. Reads the shared data/harvest volume. KISS.
-//   bun run src/dashboard.js   (PORT env, default 8080)
+//   bun run src/dashboard.js   (PORT env, default 28080)
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { getCategories } from './quickdraw.js';
 import { PALETTE } from './protocol.js';
 
 const DIR = new URL('../data/harvest/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
-const PORT = Number(process.env.PORT || 8080);
+const PORT = Number(process.env.PORT || 28080);
 
 const shardFiles = () => { try { return readdirSync(DIR).filter((f) => /^samples.*\.ndjson$/.test(f)); } catch { return []; } };
 
