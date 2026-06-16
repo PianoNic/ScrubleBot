@@ -190,20 +190,28 @@ bot.on('yourTurnChoose', ({ time, data }) => {
 // QuickDraw drawing; falls back to a harvested (learned) one for words outside
 // the 345 categories; finally a placeholder.
 async function drawOurTurn(word) {
-  let strokes = null, source = 'QuickDraw';
-  // Prefer the learned generator when it knows the word (draws it itself);
-  // otherwise replay a real QuickDraw doodle, then a harvested one.
-  if (generator?.enabled && generator.knows(word)) {
+  const key = String(word).toLowerCase();
+  let strokes = null, source = null;
+
+  const tryQuickDraw = async () => {
+    try { const s = await doodleStrokes(word, { width: 8 }); if (s) { strokes = s; source = 'QuickDraw'; } }
+    catch (e) { log('   ⚠️  quickdraw fetch failed:', e?.message); }
+  };
+  const tryGenerator = async () => {
+    if (!(generator?.enabled && generator.knows(key))) return;
     try {
-      const g = await generator.draw(word);
+      const g = await generator.draw(key);
       if (g) { strokes = strokesToSegments(g.drawing, { width: 8, colors: g.colors }); source = 'generator'; }
     } catch (e) { log('   ⚠️  generator failed:', e?.message); }
-  }
-  if (!strokes) {
-    try { strokes = await doodleStrokes(word, { width: 8 }); }
-    catch (e) { log('   ⚠️  quickdraw fetch failed:', e?.message); }
-  }
-  if (!strokes) { strokes = learnedStrokes(word, { width: 8 }); source = 'learned'; }
+  };
+
+  // QuickDraw categories → replay a real human doodle (far more recognizable than
+  // the synthetic generator). The generator is the *primary* drawer only for words
+  // QuickDraw doesn't cover (harvested/new words); each falls back to the other.
+  if (drawable.has(key)) { await tryQuickDraw(); if (!strokes) await tryGenerator(); }
+  else { await tryGenerator(); if (!strokes) await tryQuickDraw(); }
+
+  if (!strokes) { strokes = learnedStrokes(word, { width: 8 }); if (strokes) source = 'learned'; }
   if (!strokes) {
     log(`   ✍️  "${word}" unknown → placeholder`);
     bot.draw(placeholderStrokes());
