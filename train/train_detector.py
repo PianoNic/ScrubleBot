@@ -42,17 +42,25 @@ class Net(nn.Module):
         return self.head(self.features(x).flatten(1))
 
 
-def train(X, y, vocab, epochs=40, lr=1e-3, batch=64, gray_p=0.3, device=None):
+def train(X, y, vocab, epochs=40, lr=1e-3, batch=512, gray_p=0.3, device=None):
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     print(f"training on {device}: {len(X)} samples, {len(vocab)} classes")
     net = Net(len(vocab)).to(device)
     opt = torch.optim.Adam(net.parameters(), lr=lr)
     loss_fn = nn.CrossEntropyLoss()
+
     Xt, yt = torch.from_numpy(X), torch.from_numpy(y)
+    if device == "cuda":
+        try:  # preload the whole dataset to VRAM → no per-batch CPU→GPU copy
+            Xt, yt = Xt.to(device), yt.to(device)
+        except RuntimeError:
+            torch.cuda.empty_cache()
+            print("  dataset too large for VRAM — streaming batches from RAM")
+    pdev = Xt.device
     n = len(Xt)
     for ep in range(epochs):
         net.train()
-        perm = torch.randperm(n)
+        perm = torch.randperm(n, device=pdev)
         total = 0.0
         for i in range(0, n, batch):
             idx = perm[i:i + batch]
