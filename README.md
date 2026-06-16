@@ -4,6 +4,8 @@ A self-hosted [skribbl.io](https://skribbl.io) bot that **joins a lobby, guesses
 
 > It guesses by *watching the canvas* (a QuickDraw CNN), and it draws by *replaying real human doodles* (the Quick, Draw! dataset). Both run in-process — no Python, no cloud.
 
+> 🆕 **New here?** [`docs/HOW_IT_WORKS.md`](docs/HOW_IT_WORKS.md) explains the whole system in plain language.
+
 ---
 
 ## ✨ Features
