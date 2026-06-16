@@ -33,6 +33,8 @@ services:
       - --epochs
       - ${EPOCHS:-40}
       - --generator
+      - --gen-epochs
+      - ${GEN_EPOCHS:-80}
     environment:
       - LLM_CLEAN=${LLM_CLEAN:-0}
       - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434/v1}

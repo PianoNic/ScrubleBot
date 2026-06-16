@@ -28,6 +28,8 @@ services:
       - --quickdraw
       - ${QUICKDRAW:-150}
       - --generator
+      - --gen-epochs
+      - ${GEN_EPOCHS:-80}
       - --min-samples
       - ${MIN_SAMPLES:-50}
       - --epochs
