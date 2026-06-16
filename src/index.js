@@ -171,13 +171,18 @@ bot.on('turnStart', ({ drawerId, time }) =>
 
 bot.on('yourTurnChoose', ({ time, data }) => {
   const words = data?.words ?? [];
-  // Can we actually draw any of these? (QuickDraw category, harvested replay, or generator)
-  const canDrawAny = words.some((w) => {
+  const canDraw = (w) => {
     const k = String(w).toLowerCase();
     return drawable.has(k) || harvestHas(w) || (generator?.enabled && generator.knows(w));
-  });
-  if (cfg.leaveUndrawable && !canDrawAny) {
-    rejoinFresh(`our turn but can't draw ${JSON.stringify(words)}`);
+  };
+  if (cfg.leaveUndrawable) {
+    // Pick a word we can actually draw — prefer a QuickDraw category (best quality),
+    // else a harvested/generated one. If none is drawable, leave for a fresh game.
+    let idx = words.findIndex((w) => drawable.has(String(w).toLowerCase()));
+    if (idx < 0) idx = words.findIndex(canDraw);
+    if (idx < 0) { rejoinFresh(`our turn but can't draw ${JSON.stringify(words)}`); return; }
+    log(`🎯 OUR TURN — choices ${JSON.stringify(words)} → picking "${words[idx]}" (drawable ✏️)`);
+    bot.chooseWord(idx);
     return;
   }
   const idx = pickWordIndex(words, rankByKey, drawable);
@@ -213,6 +218,8 @@ async function drawOurTurn(word) {
 
   if (!strokes) { strokes = learnedStrokes(word, { width: 8 }); if (strokes) source = 'learned'; }
   if (!strokes) {
+    // Harvest bots leave rather than scribble a placeholder; full bots draw one.
+    if (cfg.leaveUndrawable) { rejoinFresh(`couldn't draw "${word}"`); return; }
     log(`   ✍️  "${word}" unknown → placeholder`);
     bot.draw(placeholderStrokes());
     return;
