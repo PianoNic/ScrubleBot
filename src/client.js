@@ -47,12 +47,14 @@ export class SkribblClient extends EventEmitter {
    * @param {string} [o.join='']   room code to join, "" = public matchmaking
    */
   async join({ create = 0, join = '' } = {}) {
+    // proxy may be a string or a picker fn (re-evaluated each join → rotation)
+    const proxyUrl = typeof this.proxy === 'function' ? this.proxy() : this.proxy;
     const { origin, path, raw } = await requestServer({
-      name: this.name, lang: this.lang, create, join, avatar: this.avatar, proxy: this.proxy,
+      name: this.name, lang: this.lang, create, join, avatar: this.avatar, proxy: proxyUrl,
     });
     this.emit('server', { origin, path, raw });
 
-    const agent = await makeAgent(this.proxy);   // route the websocket through the proxy
+    const agent = await makeAgent(proxyUrl);   // route the websocket through the proxy
     this.socket = io(origin, {
       path,
       transports: ['websocket'],

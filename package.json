@@ -10,6 +10,7 @@
     "draw": "bun run src/draw.js",
     "harvest": "bun run src/harvest-stats.js",
     "dashboard": "bun run src/dashboard.js",
+    "proxies": "bun run src/proxy-scan.js",
     "test": "bun test/smoke.js"
   },
   "dependencies": {

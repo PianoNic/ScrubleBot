@@ -44,9 +44,11 @@ const cfg = {
 const ts = () => new Date().toISOString().slice(11, 19);
 const log = (...a) => console.log(`[${ts()}]`, ...a);
 
-const proxy = pickProxy();
-if (proxy) log('🌐 routing via proxy', maskProxy(proxy));
-const bot = new SkribblClient({ name: cfg.name, proxy });
+const proxyList = process.env.BOT_PROXY ? [process.env.BOT_PROXY]
+  : (process.env.BOT_PROXIES || '').split(',').map((s) => s.trim()).filter(Boolean);
+if (proxyList.length) log(`🌐 proxy ${proxyList.length === 1 ? 'on (' + maskProxy(proxyList[0]) + ')' : 'rotation across ' + proxyList.length + ' proxies'}`);
+// pass the picker fn so each (re)join rotates to a fresh proxy from the list
+const bot = new SkribblClient({ name: cfg.name, proxy: proxyList.length ? pickProxy : '' });
 const stats = new Stats(cfg.name);   // rounds/guesses/wins for the dashboard
 
 // Wordlist powers both the guesser and the "which offered word to draw" pick.
