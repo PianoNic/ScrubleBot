@@ -15,6 +15,7 @@ import { ColorDetector } from './onnx.js';
 import { SketchGenerator } from './sketchrnn.js';
 import { strokesToSegments } from './strokes.js';
 import { randomName } from './human.js';
+import { Stats } from './stats.js';
 
 // Accept a custom lobby as a room code or a full invite URL
 // (e.g. "ABCD1234" or "https://skribbl.io/?ABCD1234"), via CLI arg or BOT_JOIN.
@@ -43,6 +44,7 @@ const ts = () => new Date().toISOString().slice(11, 19);
 const log = (...a) => console.log(`[${ts()}]`, ...a);
 
 const bot = new SkribblClient({ name: cfg.name });
+const stats = new Stats(cfg.name);   // rounds/guesses/wins for the dashboard
 
 // Wordlist powers both the guesser and the "which offered word to draw" pick.
 const entries = await loadWordlist(cfg.lang);
@@ -54,8 +56,10 @@ log(`📖 loaded ${entries.length} words, ${drawable.size} drawable categories`)
 let guesser = null;
 if (cfg.guess) {
   guesser = new DictionaryGuesser(entries, { send: (text) => bot.guess(text) });
-  guesser.onGuess = (word, remaining, sent, source) =>
+  guesser.onGuess = (word, remaining, sent, source) => {
+    stats.inc('guesses');
     log(`   🤔 guessing "${sent}"${sent !== word.toLowerCase() ? ` (=${word})` : ''} — ${remaining} fit [${source}]`);
+  };
 }
 
 // --- Phase 4: vision ("look at the drawing") -------------------------------
@@ -163,7 +167,7 @@ bot.on('playerLeft', (d) => log(`➖ ${bot.userName(d.id)} left`));
 bot.on('chat', ({ name, msg }) => log(`💬 ${name}: ${msg}`));
 bot.on('guessedCorrect', (d) => {
   log(`✅ ${bot.userName(d.id)} guessed it`);
-  if (d.id === bot.me) { log('   🎉 WE GOT IT'); guesser?.markSolved(); }
+  if (d.id === bot.me) { log('   🎉 WE GOT IT'); guesser?.markSolved(); stats.inc('wins'); }
 });
 
 bot.on('turnStart', ({ drawerId, time }) =>
@@ -270,9 +274,10 @@ bot.on('roundEnd', ({ word, reason }) => {
   guesser?.stop();
   stopVision();
   // Learn from the round we just watched, then clear.
+  if (!bot.isDrawing) stats.inc('rounds');
   if (harvester && !bot.isDrawing) {
     const r = harvester.finish(word);
-    if (r.saved) log(`   🧠 learned "${r.word}" (${r.strokes} strokes) — ${r.total} drawings known`);
+    if (r.saved) { stats.set('harvested', r.total); log(`   🧠 learned "${r.word}" (${r.strokes} strokes) — ${r.total} drawings known`); }
   }
   // The trainer writes a newer detector.onnx as the harvest grows — pick it up live.
   detector?.maybeReload().then((did) => {
