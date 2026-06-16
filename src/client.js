@@ -5,6 +5,7 @@
 import { EventEmitter } from 'node:events';
 import { io } from 'socket.io-client';
 import { requestServer } from './matchmaking.js';
+import { makeAgent } from './proxy.js';
 import { OP, STATE } from './protocol.js';
 
 export class SkribblClient extends EventEmitter {
@@ -14,11 +15,12 @@ export class SkribblClient extends EventEmitter {
    * @param {number} [opts.lang=0]
    * @param {number[]} [opts.avatar=[27,30,2,-1]]
    */
-  constructor({ name, lang = 0, avatar = [27, 30, 2, -1] }) {
+  constructor({ name, lang = 0, avatar = [27, 30, 2, -1], proxy = '' }) {
     super();
     this.name = name;
     this.lang = lang;
     this.avatar = avatar;
+    this.proxy = proxy;      // optional outbound proxy URL
 
     this.socket = null;
     /** @type {null | {settings:any,id:string,type:number,me:number,owner:number,users:any[]}} */
@@ -46,15 +48,17 @@ export class SkribblClient extends EventEmitter {
    */
   async join({ create = 0, join = '' } = {}) {
     const { origin, path, raw } = await requestServer({
-      name: this.name, lang: this.lang, create, join, avatar: this.avatar,
+      name: this.name, lang: this.lang, create, join, avatar: this.avatar, proxy: this.proxy,
     });
     this.emit('server', { origin, path, raw });
 
+    const agent = await makeAgent(this.proxy);   // route the websocket through the proxy
     this.socket = io(origin, {
       path,
       transports: ['websocket'],
       reconnection: false,
       forceNew: true,
+      ...(agent ? { agent } : {}),
     });
 
     this.socket.on('connect', () => {
