@@ -27,6 +27,9 @@ function sampleIndex(probs) {
   return probs.length - 1;
 }
 
+// stable softplus = log(1+e^x); matches torch.nn.functional.softplus
+const softplus = (x) => Math.max(x, 0) + Math.log1p(Math.exp(-Math.abs(x)));
+
 function softmax(a, temp = 1) {
   let max = -Infinity;
   for (const v of a) if (v > max) max = v;
@@ -102,13 +105,14 @@ export class SketchGenerator {
       const p = out.params.data;
       h = out.hn.data; c = out.cn.data;
 
-      // unpack [pi(M), mux(M), muy(M), sx(M), sy(M), rho(M), pen(3)]
+      // unpack [pi(M), mux(M), muy(M), sx(M), sy(M), rho(M), pen(3)] — must match
+      // train_generator.mdn_loss: softplus sigmas, rho clamped to ±0.95.
       const pi = softmax(Array.from(p.slice(0, M)), temperature);
       const k = sampleIndex(pi);
       const mux = p[M + k], muy = p[2 * M + k];
-      const sx = Math.exp(p[3 * M + k]) * Math.sqrt(temperature);
-      const sy = Math.exp(p[4 * M + k]) * Math.sqrt(temperature);
-      const rho = Math.tanh(p[5 * M + k]);
+      const sx = (softplus(p[3 * M + k]) + 1e-3) * Math.sqrt(temperature);
+      const sy = (softplus(p[4 * M + k]) + 1e-3) * Math.sqrt(temperature);
+      const rho = Math.tanh(p[5 * M + k]) * 0.95;
       const pen = softmax(Array.from(p.slice(6 * M, 6 * M + 3)));
 
       const z1 = gauss(), z2 = gauss();
