@@ -31,7 +31,10 @@ def categories_from_file(path):
     return cats
 
 
-def _fetch(cat, limit, byte_cap=400000):
+def _fetch(cat, limit):
+    # Pull enough bytes to actually yield `limit` drawings (~1.2 KB each, + headroom),
+    # so a big --quickdraw isn't silently capped by a fixed range.
+    byte_cap = max(400000, limit * 1200)
     url = f"{BASE}/{urllib.parse.quote(cat)}.ndjson"
     req = urllib.request.Request(url, headers={"Range": f"bytes=0-{byte_cap}"})
     try:
