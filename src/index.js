@@ -17,6 +17,7 @@ import { strokesToSegments } from './strokes.js';
 import { randomName } from './human.js';
 import { Stats } from './stats.js';
 import { loadPool, claimProxy, maskProxy } from './proxy.js';
+import { claimRoom, releaseRoom } from './roomguard.js';
 
 // Accept a custom lobby as a room code or a full invite URL
 // (e.g. "ABCD1234" or "https://skribbl.io/?ABCD1234"), via CLI arg or BOT_JOIN.
@@ -39,6 +40,7 @@ const cfg = {
   learn: process.env.BOT_LEARN !== '0',          // harvest drawings + few-shot detection on by default
   models: process.env.BOT_MODELS === '1',        // load the from-scratch color-aware ONNX detector
   leaveUndrawable: process.env.BOT_LEAVE_UNDRAWABLE === '1', // on our turn, if we can't draw any offered word, leave for a fresh game
+  soloLobby: process.env.BOT_SOLO_LOBBY !== '0',  // leave if another of our bots is already in this lobby (public only)
 };
 
 const ts = () => new Date().toISOString().slice(11, 19);
@@ -147,6 +149,7 @@ function rejoinFresh(reason) {
   if (shuttingDown) return;
   lastLeftRoom = bot.room?.id ?? lastLeftRoom;
   log(`🚪 leaving (${reason}) → new game`);
+  releaseRoom();
   guesser?.stop(); stopVision();
   try { bot.close(); } catch { /* already closed */ }
   setTimeout(() => bot.join({ create: 0, join: '' }).catch((e) => log('rejoin failed:', e?.message)), 1500);
@@ -158,6 +161,7 @@ bot.on('error', (e) => log('⚠️  error:', e?.message || e));
 bot.on('disconnect', (r) => {
   guesser?.stop();
   stopVision();
+  releaseRoom();
   log('❌ disconnected:', r);
   if (shuttingDown || r === 'io client disconnect') return;
   log('🔁 rejoining in 3s…');
@@ -169,6 +173,12 @@ bot.on('lobby', (room) => {
   if (cfg.leaveUndrawable && room.id && room.id === lastLeftRoom) {
     log(`   ↩ matchmade back into ${room.id} — leaving for a different lobby`);
     rejoinFresh('same room');
+    return;
+  }
+  // One bot per public lobby — if another of our bots already holds this room, bail.
+  if (cfg.soloLobby && !cfg.join && room.id && !claimRoom(room.id)) {
+    log(`   👥 another bot already in lobby ${room.id} — leaving`);
+    rejoinFresh('shared lobby');
     return;
   }
   lastLeftRoom = null;

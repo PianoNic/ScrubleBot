@@ -24,6 +24,7 @@ services:
       - BOT_SHARD=1              # per-container harvest file
       - BOT_NAME_RANDOM=1        # believable human-ish name per bot
       - BOT_LEAVE_UNDRAWABLE=1   # leave + rejoin when it can't draw its word
+      - BOT_SOLO_LOBBY=${BOT_SOLO_LOBBY:-1}   # leave if another of our bots is already in the lobby
       - BOT_START_DELAY=20       # stagger first join (random 0-20s) so the fleet doesn't thunder-herd matchmaking
       - BOT_PROXY=${BOT_PROXY:-}        # one proxy URL for all bots (http://… or socks5://…)
       - BOT_PROXIES=${BOT_PROXIES:-}    # OR a comma list; each bot picks one (spreads the fleet across IPs)
