@@ -20,8 +20,6 @@ MODEL_DIR = os.environ.get("MODEL_DIR", "data/model")
 
 def run_once(args):
     """Train+export once. Returns the sample count used (0 if it skipped)."""
-    import train_detector as td
-
     samples = load_samples(HARVEST)
     if os.environ.get("LLM_CLEAN", "0") == "1" and samples:
         from llm_clean import clean
@@ -45,14 +43,20 @@ def run_once(args):
     if not vocab:
         print(f"no word has >= {args.min_per_word} samples yet — skipping")
         return 0
-    X, y = build_dataset(samples, vocab)
-    if X is None:
-        print("nothing rasterizable — skipping")
-        return 0
 
-    net = td.train(X, y, vocab, epochs=args.epochs, gray_p=args.gray)
-    path = td.export(net, vocab, MODEL_DIR)
-    print(f"exported {path}  ({len(vocab)} words, {len(X)} samples)")
+    # Detector (skip with --skip-detector to keep an existing detector.onnx and
+    # retrain only the generator — also skips the slow rasterization).
+    if args.skip_detector:
+        print("skipping detector — keeping the existing detector.onnx")
+    else:
+        import train_detector as td
+        X, y = build_dataset(samples, vocab)
+        if X is None:
+            print("nothing rasterizable — skipping")
+            return 0
+        net = td.train(X, y, vocab, epochs=args.epochs, gray_p=args.gray)
+        path = td.export(net, vocab, MODEL_DIR)
+        print(f"exported {path}  ({len(vocab)} words, {len(X)} samples)")
 
     if args.generator:
         import train_generator as tg
@@ -71,6 +75,7 @@ def main():
     p.add_argument("--epochs", type=int, default=40)
     p.add_argument("--gray", type=float, default=0.3, help="grayscale-augment probability (monochrome robustness)")
     p.add_argument("--generator", action="store_true", help="also train the Sketch-RNN drawer")
+    p.add_argument("--skip-detector", action="store_true", help="keep the existing detector.onnx; train only the generator")
     p.add_argument("--gen-epochs", type=int, default=80)
     p.add_argument("--quickdraw", type=int, default=0,
                    help="QuickDraw samples per category to seed the single model (0 = harvest only)")
