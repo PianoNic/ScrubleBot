@@ -1,0 +1,28 @@
+# Harvest-only fleet — lightweight bots that collect training data.
+#
+# Each bot joins a public game, watches + records the drawings it sees, and on its
+# own turn: draws a QuickDraw word if it can, otherwise LEAVES and rejoins a fresh
+# game (no AFK, no bad scribbles). They don't load vision or the ONNX models, so
+# they're cheap — run a bunch:
+#
+#   docker compose -f docker-compose.harvest.yml up --build --scale harvester=4
+#
+# Each container writes its own shard at ./data/harvest/samples.<container>.ndjson
+# (safe concurrent writes); the trainer reads every shard automatically.
+services:
+  harvester:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    environment:
+      - BOT_GUESS=0               # pure data collection — no guessing
+      - BOT_VISION=0              # no doodleNet
+      - BOT_MODELS=0              # no ONNX models
+      - BOT_LEARN=1              # harvest on
+      - BOT_SHARD=1              # per-container harvest file
+      - BOT_NAME=${BOT_NAME:-Scrub}
+      - BOT_NAME_RANDOM=1        # unique name per bot
+      - BOT_LEAVE_UNDRAWABLE=1   # leave + rejoin when it can't draw its word
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

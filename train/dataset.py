@@ -12,25 +12,31 @@ from raster import rasterize
 
 
 def load_samples(path):
-    """Read samples.ndjson -> [{word, drawing, colors}], skipping bad lines."""
+    """Read every harvest shard (samples*.ndjson alongside `path`) into
+    [{word, drawing, colors}], skipping bad lines. Supports a fleet of harvest
+    bots each writing its own shard."""
+    import glob
     out = []
-    try:
-        f = open(path)
-    except FileNotFoundError:
-        return out
-    with f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                o = json.loads(line)
-            except ValueError:
-                continue
-            word, drawing = o.get("word"), o.get("drawing")
-            if word and isinstance(drawing, list) and drawing:
-                out.append({"word": word.lower(), "drawing": drawing,
-                            "colors": o.get("colors")})
+    directory = os.path.dirname(path) or "."
+    files = sorted(glob.glob(os.path.join(directory, "samples*.ndjson"))) or [path]
+    for fp in files:
+        try:
+            f = open(fp)
+        except FileNotFoundError:
+            continue
+        with f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    o = json.loads(line)
+                except ValueError:
+                    continue
+                word, drawing = o.get("word"), o.get("drawing")
+                if word and isinstance(drawing, list) and drawing:
+                    out.append({"word": word.lower(), "drawing": drawing,
+                                "colors": o.get("colors")})
     return out
 
 
