@@ -16,7 +16,7 @@ import { SketchGenerator } from './sketchrnn.js';
 import { strokesToSegments } from './strokes.js';
 import { randomName } from './human.js';
 import { Stats } from './stats.js';
-import { pickProxy, maskProxy } from './proxy.js';
+import { loadPool, claimProxy, maskProxy } from './proxy.js';
 
 // Accept a custom lobby as a room code or a full invite URL
 // (e.g. "ABCD1234" or "https://skribbl.io/?ABCD1234"), via CLI arg or BOT_JOIN.
@@ -44,11 +44,20 @@ const cfg = {
 const ts = () => new Date().toISOString().slice(11, 19);
 const log = (...a) => console.log(`[${ts()}]`, ...a);
 
-const proxyList = process.env.BOT_PROXY ? [process.env.BOT_PROXY]
-  : (process.env.BOT_PROXIES || '').split(',').map((s) => s.trim()).filter(Boolean);
-if (proxyList.length) log(`🌐 proxy ${proxyList.length === 1 ? 'on (' + maskProxy(proxyList[0]) + ')' : 'rotation across ' + proxyList.length + ' proxies'}`);
-// pass the picker fn so each (re)join rotates to a fresh proxy from the list
-const bot = new SkribblClient({ name: cfg.name, proxy: proxyList.length ? pickProxy : '' });
+// Resolve a proxy: explicit BOT_PROXY, else claim our own from the pool
+// (BOT_PROXIES + the proxies/ folder); share one only if the pool is exhausted.
+let proxy = (process.env.BOT_PROXY || '').trim();
+if (proxy) {
+  log(`🌐 proxy ${maskProxy(proxy)}`);
+} else {
+  const pool = loadPool();
+  if (pool.length) {
+    proxy = claimProxy(pool);
+    if (proxy) log(`🌐 claimed own proxy ${maskProxy(proxy)} (pool of ${pool.length})`);
+    else { proxy = pool[Math.floor(Math.random() * pool.length)]; log(`🌐 pool of ${pool.length} all claimed — sharing ${maskProxy(proxy)}`); }
+  }
+}
+const bot = new SkribblClient({ name: cfg.name, proxy });
 const stats = new Stats(cfg.name);   // rounds/guesses/wins for the dashboard
 
 // Wordlist powers both the guesser and the "which offered word to draw" pick.

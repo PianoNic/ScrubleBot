@@ -29,6 +29,7 @@ services:
       - BOT_PROXIES=${BOT_PROXIES:-}    # OR a comma list; each bot picks one (spreads the fleet across IPs)
     volumes:
       - ./data:/app/data
+      - ./proxies:/app/proxies:ro     # drop proxy files here; each bot claims its own
     restart: unless-stopped
 
   # Always-on dashboard (one container): live stats + the harvested drawings.
