@@ -14,8 +14,10 @@
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.22.0",
+    "https-proxy-agent": "^9.1.0",
     "onnxruntime-node": "^1.26.0",
-    "socket.io-client": "^4.8.1"
+    "socket.io-client": "^4.8.1",
+    "socks-proxy-agent": "^10.1.0"
   },
   "trustedDependencies": [
     "onnxruntime-node"

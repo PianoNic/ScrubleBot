@@ -16,6 +16,7 @@ import { SketchGenerator } from './sketchrnn.js';
 import { strokesToSegments } from './strokes.js';
 import { randomName } from './human.js';
 import { Stats } from './stats.js';
+import { pickProxy, maskProxy } from './proxy.js';
 
 // Accept a custom lobby as a room code or a full invite URL
 // (e.g. "ABCD1234" or "https://skribbl.io/?ABCD1234"), via CLI arg or BOT_JOIN.
@@ -43,7 +44,9 @@ const cfg = {
 const ts = () => new Date().toISOString().slice(11, 19);
 const log = (...a) => console.log(`[${ts()}]`, ...a);
 
-const bot = new SkribblClient({ name: cfg.name });
+const proxy = pickProxy();
+if (proxy) log('🌐 routing via proxy', maskProxy(proxy));
+const bot = new SkribblClient({ name: cfg.name, proxy });
 const stats = new Stats(cfg.name);   // rounds/guesses/wins for the dashboard
 
 // Wordlist powers both the guesser and the "which offered word to draw" pick.

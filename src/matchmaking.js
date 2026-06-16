@@ -15,7 +15,7 @@ const PLAY_URL = 'https://skribbl.io/api/play';
  * @param {number[]} opts.avatar [head, eyes, mouth, -1]
  * @returns {Promise<{origin: string, path: string, raw: string}>}
  */
-export async function requestServer({ name, lang = 0, create = 0, join = '', avatar = [27, 30, 2, -1] }) {
+export async function requestServer({ name, lang = 0, create = 0, join = '', avatar = [27, 30, 2, -1], proxy = '' }) {
   // /api/play occasionally returns an empty body (rate-limit); retry a few times.
   let raw = '';
   for (let attempt = 0; attempt < 4 && !raw; attempt++) {
@@ -24,6 +24,7 @@ export async function requestServer({ name, lang = 0, create = 0, join = '', ava
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, lang, create, join, avatar }),
+      ...(proxy ? { proxy } : {}),   // Bun fetch routes through the proxy
     });
     if (!res.ok) throw new Error(`/api/play returned ${res.status}`);
     raw = (await res.text()).trim(); // e.g. "https://server3.skribbl.io:5005"
