@@ -45,8 +45,11 @@ const normalize = (line) => {
 async function test(proxy) {
   const t = Date.now();
   try {
-    const r = await fetch(TEST_URL, { method: 'HEAD', proxy, signal: AbortSignal.timeout(TIMEOUT) });
-    if (r.status && r.status < 500) return Date.now() - t;
+    const r = await fetch(TEST_URL, { proxy, signal: AbortSignal.timeout(TIMEOUT), headers: { 'user-agent': 'Mozilla/5.0' } });
+    if (r.status !== 200) return null;                  // reject proxy error pages (403/407/…)
+    const body = await r.text();
+    if (!/skribbl/i.test(body)) return null;            // must be skribbl's real page, not the proxy's
+    return Date.now() - t;
   } catch { /* dead */ }
   return null;
 }
