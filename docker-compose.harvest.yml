@@ -28,3 +28,18 @@ services:
     volumes:
       - ./data:/app/data
     restart: unless-stopped
+
+  # Always-on dashboard (one container): live stats + the harvested drawings.
+  # Open http://localhost:8080 (set DASHBOARD_PORT to change).
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    command: ["bun", "run", "src/dashboard.js"]
+    environment:
+      - PORT=8080
+    ports:
+      - "${DASHBOARD_PORT:-8080}:8080"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
