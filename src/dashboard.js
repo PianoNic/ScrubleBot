@@ -155,6 +155,13 @@ padding:9px 12px;color:var(--fg);font-size:13px;margin-bottom:14px;outline:none}
 .search:focus{border-color:var(--accent2)}
 select.search{cursor:pointer}.filters{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
 .filters .search{margin-bottom:0}
+.tile{cursor:pointer}.tile:hover{border-color:var(--accent2)}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
+.modal.hidden{display:none}
+.modalcard{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px;max-width:560px;width:100%}
+.modalcard svg{width:100%;height:min(68vh,520px);background:#fff;border-radius:10px;display:block}
+.mword{font-size:15px;font-weight:600;text-align:center;margin-bottom:10px}
+.mhint{text-align:center;color:var(--muted);font-size:12px;margin-top:10px}
 .btn{background:var(--card);border:1px solid var(--border);color:var(--fg);border-radius:10px;
 padding:9px 18px;font-size:13px;cursor:pointer}.btn:hover{border-color:var(--accent2)}
 .top{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:13px 20px;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--border)}
@@ -190,6 +197,7 @@ padding:9px 18px;font-size:13px;cursor:pointer}.btn:hover{border-color:var(--acc
 <div style="text-align:center;margin-top:16px"><button id="more" class="btn">Load more</button></div>
 </section>
 </main>
+<div class="modal hidden" id="modal"><div class="modalcard"><div class="mword" id="mword"></div><div id="msvg"></div><div class="mhint">tap outside or press Esc to close</div></div></div>
 <script>
 const PAL=${JSON.stringify(PALETTE)};
 const pct=(a,b)=>b?Math.round(100*a/b)+'%':'—';
@@ -254,5 +262,13 @@ tabs.onclick=e=>{const b=e.target.closest('button');if(!b)return;
   ['overview','bots','drawings'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden',t!==b.dataset.t));
   if(b.dataset.t==='drawings'&&!loadedAll){loadedAll=true;fillWords();loadAll(true);}
 };
+// click any drawing to enlarge it
+const modal=document.getElementById('modal');
+document.addEventListener('click',e=>{const t=e.target.closest('.tile');
+  if(t){document.getElementById('msvg').innerHTML=(t.querySelector('svg')||{}).outerHTML||'';
+    document.getElementById('mword').textContent=(t.querySelector('.w')||{}).textContent||'';
+    modal.classList.remove('hidden');return;}
+  if(e.target===modal)modal.classList.add('hidden');});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')modal.classList.add('hidden');});
 tick();setInterval(tick,5000);
 </script></body></html>`;
