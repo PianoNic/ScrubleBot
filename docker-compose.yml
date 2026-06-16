@@ -19,6 +19,19 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.train
+    # Build the single model (QuickDraw shape base + harvest + generator), then
+    # keep retraining as you play. QUICKDRAW=0 disables the base (harvest only).
+    command:
+      - python
+      - train/train.py
+      - --watch
+      - --quickdraw
+      - ${QUICKDRAW:-150}
+      - --generator
+      - --min-samples
+      - ${MIN_SAMPLES:-50}
+      - --epochs
+      - ${EPOCHS:-40}
     environment:
       - LLM_CLEAN=${LLM_CLEAN:-1}
       - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434/v1}

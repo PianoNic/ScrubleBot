@@ -164,8 +164,8 @@ async function drawOurTurn(word) {
   // otherwise replay a real QuickDraw doodle, then a harvested one.
   if (generator?.enabled && generator.knows(word)) {
     try {
-      const drawing = await generator.draw(word);
-      if (drawing) { strokes = strokesToSegments(drawing, { width: 8 }); source = 'generator'; }
+      const g = await generator.draw(word);
+      if (g) { strokes = strokesToSegments(g.drawing, { width: 8, colors: g.colors }); source = 'generator'; }
     } catch (e) { log('   ⚠️  generator failed:', e?.message); }
   }
   if (!strokes) {
@@ -241,6 +241,12 @@ bot.on('roundEnd', ({ word, reason }) => {
 
 // Surface anything we haven't mapped yet, to keep filling the protocol.
 bot.on('unknown', ({ id, data }) => log(`❓ unknown op${id}:`, String(JSON.stringify(data) ?? data).slice(0, 160)));
+
+// BOT_DEBUG=1 dumps every raw frame — use it in a live game to confirm the
+// still-unverified opcodes (15 guessed-correct, 21 clear) against real payloads.
+if (process.env.BOT_DEBUG === '1') {
+  bot.on('raw', ({ id, data }) => log(`🐛 op${id}:`, String(JSON.stringify(data)).slice(0, 200)));
+}
 
 log('starting…', cfg);
 log(cfg.join ? `🔑 joining custom lobby "${cfg.join}"` : (cfg.create ? '🏗  creating private room' : '🌐 public matchmaking'));

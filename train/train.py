@@ -58,7 +58,7 @@ def run_once(args):
         import train_generator as tg
         gnet, scale = tg.train(samples, vocab, epochs=args.gen_epochs)
         if gnet is not None:
-            gpath = tg.export(gnet, vocab, scale, MODEL_DIR)
+            gpath = tg.export(gnet, vocab, scale, MODEL_DIR, tg.word_colors(samples, vocab))
             print(f"exported {gpath}")
 
     return len(samples)

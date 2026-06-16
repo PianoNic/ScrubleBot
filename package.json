@@ -6,7 +6,8 @@
   "module": "src/index.js",
   "scripts": {
     "start": "bun run src/index.js",
-    "dev": "bun --watch run src/index.js"
+    "dev": "bun --watch run src/index.js",
+    "test": "bun test/smoke.js"
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.22.0",

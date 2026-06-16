@@ -155,7 +155,24 @@ class Step(nn.Module):
         return self.out(y), hn, cn
 
 
-def export(net, vocab, scale, out_dir):
+def word_colors(samples, vocab, cap=40):
+    """Per-word list of stroke palette indices seen in the harvest, so generated
+    drawings can be colored plausibly (tree -> brown/green). QuickDraw samples are
+    colorless (colors=None) and simply contribute none."""
+    vset = set(vocab)
+    out = {}
+    for s in samples:
+        w = s["word"]
+        if w not in vset or not s.get("colors"):
+            continue
+        bucket = out.setdefault(w, [])
+        for c in s["colors"]:
+            if isinstance(c, int) and len(bucket) < cap:
+                bucket.append(c)
+    return {w: v for w, v in out.items() if v}
+
+
+def export(net, vocab, scale, out_dir, colors=None):
     os.makedirs(out_dir, exist_ok=True)
     step = Step(net).eval().cpu()
     point = torch.zeros(1, 1, 5)
@@ -173,5 +190,5 @@ def export(net, vocab, scale, out_dir):
     os.replace(tmp, final)
     with open(os.path.join(out_dir, "generator.meta.json"), "w") as f:
         json.dump({"vocab": vocab, "scale": scale, "hidden": HIDDEN,
-                   "mixtures": M, "max_len": MAX_LEN}, f)
+                   "mixtures": M, "max_len": MAX_LEN, "colors": colors or {}}, f)
     return final

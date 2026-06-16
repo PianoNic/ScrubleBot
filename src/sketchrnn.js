@@ -71,8 +71,8 @@ export class SketchGenerator {
   knows(word) { return this.vocabSet.has(String(word).toLowerCase()); }
 
   /**
-   * Sample a drawing of `word`.
-   * @returns {Promise<number[][][]|null>} drawing [[xs,ys],…], or null if unknown.
+   * Sample a drawing of `word`, colored from the word's learned palette.
+   * @returns {Promise<{drawing:number[][][], colors:number[]}|null>} or null if unknown.
    */
   async draw(word, { temperature = 0.4 } = {}) {
     if (!this.ready) return null;
@@ -82,12 +82,15 @@ export class SketchGenerator {
 
     const { hidden, mixtures: M, max_len, scale, vocab } = this.meta;
     const T = this.ort.Tensor;
+    const palette = this.meta.colors?.[key] || [];
+    const pickColor = () => (palette.length ? palette[Math.floor(Math.random() * palette.length)] : 1);
     const cond = new Float32Array(vocab.length); cond[ci] = 1;
     let h = new Float32Array(hidden), c = new Float32Array(hidden);
     let point = new Float32Array([0, 0, 1, 0, 0]); // start token (pen down at origin)
 
-    const strokes = [];
+    const strokes = [], colors = [];
     let xs = [0], ys = [0], x = 0, y = 0;
+    const flush = () => { if (xs.length > 1) { strokes.push([xs, ys]); colors.push(pickColor()); } };
 
     for (let t = 0; t < max_len; t++) {
       const out = await this.session.run({
@@ -115,8 +118,8 @@ export class SketchGenerator {
 
       x += dx * scale; y += dy * scale;
       if (state === 2) break;                 // end of sketch
-      if (state === 1) {                       // pen lift → start a new stroke
-        if (xs.length > 1) strokes.push([xs, ys]);
+      if (state === 1) {                       // pen lift → close stroke, start new
+        flush();
         xs = [x]; ys = [y];
       } else {                                 // pen down → extend current stroke
         xs.push(x); ys.push(y);
@@ -124,7 +127,7 @@ export class SketchGenerator {
 
       point = new Float32Array([dx, dy, state === 0 ? 1 : 0, state === 1 ? 1 : 0, 0]);
     }
-    if (xs.length > 1) strokes.push([xs, ys]);
-    return strokes.length ? strokes : null;
+    flush();
+    return strokes.length ? { drawing: strokes, colors } : null;
   }
 }

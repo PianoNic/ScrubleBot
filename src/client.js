@@ -77,6 +77,7 @@ export class SkribblClient extends EventEmitter {
   }
 
   _onData({ id, data }) {
+    this.emit('raw', { id, data }); // every frame, for BOT_DEBUG opcode capture
     switch (id) {
       case OP.HOST_STATE: {
         this.room = data;
