@@ -141,24 +141,37 @@ padding:9px 12px;color:var(--fg);font-size:13px;margin-bottom:14px;outline:none}
 .search:focus{border-color:var(--accent2)}
 .btn{background:var(--card);border:1px solid var(--border);color:var(--fg);border-radius:10px;
 padding:9px 18px;font-size:13px;cursor:pointer}.btn:hover{border-color:var(--accent2)}
-</style></head><body><div class="wrap">
-<div><h1>🎨 ScrubleBot · Harvest</h1><div class="sub" id="updated">loading…</div></div>
-
+.top{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:13px 20px;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--border)}
+.brand{font-size:15px;font-weight:500}.brand b{font-weight:650}
+.tabs{display:flex;gap:3px;margin-left:auto;background:var(--card);border:1px solid var(--border);border-radius:11px;padding:3px}
+.tabs button{background:none;border:0;color:var(--muted);font:inherit;font-size:13px;padding:6px 15px;border-radius:8px;cursor:pointer}
+.tabs button.active{background:var(--bg);color:var(--fg)}
+.upd{font-size:12px}.tab.hidden{display:none}
+@media(max-width:560px){.top{padding:11px 14px;gap:10px}.tabs{margin-left:0;width:100%;justify-content:space-between}.tabs button{flex:1;padding:7px 4px}.upd{display:none}}
+</style></head><body>
+<header class="top">
+<div class="brand">🎨 <b>ScrubleBot</b> <span class="muted">Harvest</span></div>
+<nav class="tabs" id="tabs"><button class="active" data-t="overview">Overview</button><button data-t="bots">Harvesters</button><button data-t="drawings">Drawings</button></nav>
+<div class="upd muted" id="updated">loading…</div>
+</header>
+<main class="wrap">
+<section class="tab" id="tab-overview">
 <div class="grid cards" id="cards"></div>
-
-<div class="section"><h2>Harvesters</h2><div class="card tablecard" style="padding:4px 0">
-<table><thead><tr><th>Bot</th><th class="num">Rounds</th><th class="num">Guesses</th><th class="num">Wins</th><th class="num">Win/Guess</th><th>Status</th></tr></thead>
-<tbody id="bots"></tbody></table></div></div>
-
 <div class="section"><h2>Most-harvested words</h2><div class="chips" id="top"></div></div>
-
-<div class="section"><h2>Recently harvested drawings</h2><div class="grid gallery" id="gallery"></div></div>
-
-<div class="section"><h2>All harvested drawings <span class="muted" id="allcount"></span></h2>
-<input id="search" class="search" placeholder="filter by word…" autocomplete="off">
-<div class="grid gallery" id="allgallery"></div>
-<div style="text-align:center;margin-top:16px"><button id="more" class="btn">Load more</button></div></div>
-</div>
+<div class="section"><h2>Recent drawings</h2><div class="grid gallery" id="gallery"></div></div>
+</section>
+<section class="tab hidden" id="tab-bots">
+<div class="card tablecard" style="padding:4px 0">
+<table><thead><tr><th>Bot</th><th class="num">Rounds</th><th class="num">Guesses</th><th class="num">Wins</th><th class="num">Win/Guess</th><th>Status</th></tr></thead>
+<tbody id="bots"></tbody></table></div>
+<div style="text-align:center;margin-top:14px"><button id="botsmore" class="btn" style="display:none"></button></div>
+</section>
+<section class="tab hidden" id="tab-drawings">
+<input id="search" class="search" placeholder="filter by word…" autocomplete="off"><span class="muted" id="allcount" style="margin-left:8px"></span>
+<div class="grid gallery" id="allgallery" style="margin-top:14px"></div>
+<div style="text-align:center;margin-top:16px"><button id="more" class="btn">Load more</button></div>
+</section>
+</main>
 <script>
 const PAL=${JSON.stringify(PALETTE)};
 const pct=(a,b)=>b?Math.round(100*a/b)+'%':'—';
@@ -184,11 +197,7 @@ async function tick(){
       card('Trainable (≥3)',s.trainable.toLocaleString())+
       card('Win / Guess',pct(s.wins,s.guesses),s.wins+'/'+s.guesses)+
       card('Rounds watched',s.rounds.toLocaleString());
-    document.getElementById('bots').innerHTML=s.harvesters.map(h=>
-      '<tr><td>'+(h.name||'?')+'</td><td class="num">'+(h.rounds||0)+'</td><td class="num">'+(h.guesses||0)+
-      '</td><td class="num">'+(h.wins||0)+'</td><td class="num">'+pct(h.wins||0,h.guesses||0)+
-      '</td><td><span class="badge'+(h.active?'':' off')+'">'+(h.active?'live':'idle')+'</span></td></tr>').join('')
-      ||'<tr><td colspan="6" class="muted" style="padding:14px 12px">no harvesters yet</td></tr>';
+    lastBots=s.harvesters;renderBots();
     document.getElementById('top').innerHTML=s.top.map(([w,c])=>'<span class="chip">'+esc(w)+'<b>'+c+'</b></span>').join('');
     const ds=await (await fetch('/api/drawings?n=24')).json();
     document.getElementById('gallery').innerHTML=ds.map(tile).join('')||'<div class="muted">nothing harvested yet</div>';
@@ -207,5 +216,21 @@ async function loadAll(reset){
 }
 document.getElementById('more').onclick=()=>loadAll(false);
 let st;document.getElementById('search').oninput=()=>{clearTimeout(st);st=setTimeout(()=>loadAll(true),300);};
-tick();setInterval(tick,5000);loadAll(true);
+// harvesters: top 6, rest behind a toggle
+let lastBots=[],botsExpanded=false;
+function botRow(h){return '<tr><td>'+esc(h.name||'?')+'</td><td class="num">'+(h.rounds||0)+'</td><td class="num">'+(h.guesses||0)+'</td><td class="num">'+(h.wins||0)+'</td><td class="num">'+pct(h.wins||0,h.guesses||0)+'</td><td><span class="badge'+(h.active?'':' off')+'">'+(h.active?'live':'idle')+'</span></td></tr>';}
+function renderBots(){
+  document.getElementById('bots').innerHTML=(botsExpanded?lastBots:lastBots.slice(0,6)).map(botRow).join('')||'<tr><td colspan="6" class="muted" style="padding:14px 12px">no harvesters yet</td></tr>';
+  const b=document.getElementById('botsmore');
+  if(lastBots.length>6){b.style.display='';b.textContent=botsExpanded?'Show less':('Show all ('+lastBots.length+')');}else b.style.display='none';
+}
+document.getElementById('botsmore').onclick=()=>{botsExpanded=!botsExpanded;renderBots();};
+// tabs
+let loadedAll=false;const tabs=document.getElementById('tabs');
+tabs.onclick=e=>{const b=e.target.closest('button');if(!b)return;
+  [...tabs.children].forEach(x=>x.classList.toggle('active',x===b));
+  ['overview','bots','drawings'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden',t!==b.dataset.t));
+  if(b.dataset.t==='drawings'&&!loadedAll){loadedAll=true;loadAll(true);}
+};
+tick();setInterval(tick,5000);
 </script></body></html>`;
