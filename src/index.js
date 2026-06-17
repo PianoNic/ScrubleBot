@@ -284,8 +284,19 @@ bot.on('drawing', ({ drawerId, word, hints, time }) => {
 });
 
 // Incoming strokes from the current drawer — accumulate for vision + learning.
+const seenTools = new Set();
 bot.on('draw', (segments) => {
   if (bot.isDrawing) return;
+  // BOT_DEBUG: surface the first sighting of any non-pen tool (fill/bucket/etc.)
+  // with its raw payload, so we can learn the format and add support.
+  if (process.env.BOT_DEBUG === '1' && Array.isArray(segments)) {
+    for (const s of segments) {
+      if (Array.isArray(s) && s[0] !== 0 && !seenTools.has(s[0])) {
+        seenTools.add(s[0]);
+        log(`🛠  NON-PEN tool ${s[0]} — raw: ${JSON.stringify(s)} (len ${s.length})`);
+      }
+    }
+  }
   canvas.add(segments);
   harvester?.add(segments);
 });
