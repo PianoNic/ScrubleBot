@@ -30,8 +30,9 @@ export const STATE = {
 
 /** Draw tool codes inside OP.DRAW segments (segment = [tool,color,width,x1,y1,x2,y2]). */
 export const TOOL = {
-  PEN: 0,
-  // FILL / CLEAR / UNDO codes still to be confirmed empirically
+  PEN: 0,        // [0, color, width, x1, y1, x2, y2]
+  FILL: 1,       // flood fill: [1, color, x, y]
+  // CLEAR is a separate opcode (op21); UNDO code still to be confirmed
 };
 
 /** skribbl's default 22-colour palette (index → #hex), used by OP.DRAW `color`. */

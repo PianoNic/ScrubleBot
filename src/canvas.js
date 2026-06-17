@@ -15,29 +15,35 @@ const MARGIN = 0.12;   // fraction of padding around the drawing
 export class StrokeCanvas {
   constructor() { this.segments = []; }
 
-  /** Add a batch of op19 segments: [tool,color,width,x1,y1,x2,y2]. */
+  /** Add op19 segments — pen [0,color,width,x1,y1,x2,y2] and fill [1,color,x,y],
+   *  preserving order (a fill colors the region as it was at that moment). */
   add(segments) {
     if (!Array.isArray(segments)) return;
     for (const s of segments) {
-      if (!Array.isArray(s) || s.length < 7) continue;
-      if (s[0] !== TOOL.PEN) continue; // ignore fills/erase tools for now
-      if (s[1] === 0) continue;        // skip white ink (eraser/background)
-      this.segments.push(s);
+      if (!Array.isArray(s)) continue;
+      if (s[0] === TOOL.PEN && s.length >= 7) {
+        if (s[1] === 0) continue;      // skip white ink (eraser/background)
+        this.segments.push(s);
+      } else if (s[0] === TOOL.FILL && s.length >= 4) {
+        this.segments.push(s);         // [1, color, x, y]
+      }
     }
   }
 
   clear() { this.segments = []; }
   get isEmpty() { return this.segments.length === 0; }
 
-  /** Bounding box over all segment endpoints, or null if empty. */
+  /** Bounding box over the pen strokes (fills don't define the shape), or null. */
   _bbox() {
-    if (this.isEmpty) return null;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const [, , , x1, y1, x2, y2] of this.segments) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, any = false;
+    for (const s of this.segments) {
+      if (s[0] !== TOOL.PEN || s.length < 7) continue;
+      const [, , , x1, y1, x2, y2] = s;
       minX = Math.min(minX, x1, x2); maxX = Math.max(maxX, x1, x2);
       minY = Math.min(minY, y1, y2); maxY = Math.max(maxY, y1, y2);
+      any = true;
     }
-    return { minX, minY, maxX, maxY };
+    return any ? { minX, minY, maxX, maxY } : null;
   }
 
   /**
@@ -60,8 +66,9 @@ export class StrokeCanvas {
 
     const hi = new Float32Array(HI * HI);
     const radius = Math.max(1, Math.round(0.9 * POOL)); // stroke half-thickness in hi-res px
-    for (const [, , , x1, y1, x2, y2] of this.segments) {
-      this._line(hi, tx(x1), ty(y1), tx(x2), ty(y2), radius);
+    for (const s of this.segments) {                    // pen only — doodleNet wants line-art
+      if (s[0] !== TOOL.PEN || s.length < 7) continue;
+      this._line(hi, tx(s[3]), ty(s[4]), tx(s[5]), ty(s[6]), radius);
     }
 
     // box-downsample HI×HI -> 28×28 (average pooling = cheap anti-aliasing)
@@ -101,11 +108,16 @@ export class StrokeCanvas {
     const tx = (x) => x * scale + offX;
     const ty = (y) => y * scale + offY;
 
-    // hi-res RGB, white background (1,1,1)
+    // hi-res RGB, white background (1,1,1). Process ops IN ORDER so a fill colors
+    // the region as it was at that moment and later strokes draw over it.
     const hi = new Float32Array(HI * HI * 3).fill(1);
     const radius = Math.max(1, Math.round(0.9 * pool));
-    for (const [, color, , x1, y1, x2, y2] of this.segments) {
-      this._lineRGB(hi, tx(x1), ty(y1), tx(x2), ty(y2), radius, colorRGB(color));
+    for (const s of this.segments) {
+      if (s[0] === TOOL.PEN && s.length >= 7) {
+        this._lineRGB(hi, tx(s[3]), ty(s[4]), tx(s[5]), ty(s[6]), radius, colorRGB(s[1]));
+      } else if (s[0] === TOOL.FILL && s.length >= 4) {
+        this._fillRGB(hi, Math.round(tx(s[2])), Math.round(ty(s[3])), colorRGB(s[1]));
+      }
     }
 
     // box-downsample per channel into CHW output
@@ -128,6 +140,24 @@ export class StrokeCanvas {
       }
     }
     return res;
+  }
+
+  /** Flood-fill the region at (px,py) with rgb (4-connectivity, exact-color). */
+  _fillRGB(buf, px, py, rgb) {
+    if (px < 0 || px >= HI || py < 0 || py >= HI) return;
+    const at = (x, y) => (y * HI + x) * 3;
+    const i0 = at(px, py);
+    const tr = buf[i0], tg = buf[i0 + 1], tb = buf[i0 + 2];   // colour we're replacing
+    if (tr === rgb[0] && tg === rgb[1] && tb === rgb[2]) return;
+    const stack = [px, py];
+    while (stack.length) {
+      const y = stack.pop(), x = stack.pop();
+      if (x < 0 || x >= HI || y < 0 || y >= HI) continue;
+      const i = at(x, y);
+      if (buf[i] !== tr || buf[i + 1] !== tg || buf[i + 2] !== tb) continue;
+      buf[i] = rgb[0]; buf[i + 1] = rgb[1]; buf[i + 2] = rgb[2];
+      stack.push(x + 1, y, x - 1, y, x, y + 1, x, y - 1);
+    }
   }
 
   /** Stamp a thick colored line into the hi-res RGB buffer. */
