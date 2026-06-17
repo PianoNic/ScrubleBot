@@ -35,13 +35,14 @@ export const TOOL = {
   // CLEAR is a separate opcode (op21); UNDO code still to be confirmed
 };
 
-/** skribbl's default 22-colour palette (index → #hex), used by OP.DRAW `color`. */
+/** skribbl's current 26-colour palette (index → #hex), from the live game.js. */
 export const PALETTE = [
-  '#ffffff', '#000000', '#c1c1c1', '#4c4c4c',
+  '#ffffff', '#000000', '#c1c1c1', '#505050',
   '#ef130b', '#740b07', '#ff7100', '#c23800',
-  '#ffe400', '#e8a200', '#00cc00', '#005510',
-  '#00b2ff', '#00569e', '#231fd3', '#0e0865',
-  '#a300ba', '#550069', '#d37caa', '#a75574',
+  '#ffe400', '#e8a200', '#00cc00', '#004619',
+  '#00ff91', '#00785d', '#00b2ff', '#00569e',
+  '#231fd3', '#0e0865', '#a300ba', '#550069',
+  '#df69a7', '#873554', '#ffac8e', '#cc774d',
   '#a0522d', '#63300d',
 ];
 
