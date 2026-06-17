@@ -43,6 +43,8 @@ export class DoodleHarvester {
 
   startRound() { this.segments = []; }
   add(segments) { if (Array.isArray(segments)) for (const s of segments) this.segments.push(s); }
+  /** Undo: truncate the buffered stream to `len` (drops the last stroke/fill). */
+  undo(len) { this.segments = this.segments.slice(0, Math.max(0, len | 0)); }
 
   /**
    * Save the buffered drawing under the revealed word.

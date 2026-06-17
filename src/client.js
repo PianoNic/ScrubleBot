@@ -124,6 +124,10 @@ export class SkribblClient extends EventEmitter {
       case OP.CLEAR:
         this.emit('clear', data);
         break;
+      case OP.UNDO:
+        // data = new length of the drawer's segment list (truncate to it)
+        this.emit('undo', typeof data === 'number' ? data : data?.data);
+        break;
       default:
         this.emit('unknown', { id, data });
     }
