@@ -14,7 +14,8 @@ export const OP = {
   STATE: 11,          // game state machine {id:<STATE>, time, data}
   HINTS: 13,          // hint reveal — data = [[position, char], ...]
   TIMER: 14,          // round timer tick — data = <seconds> (bare number)
-  CLEAR: 21,          // canvas/word-bank related tick — data = <number> (TBD)
+  CLEAR: 20,          // drawer cleared the canvas (no data) — confirmed in game.js
+  UNDO: 21,           // drawer undid — data = new draw-list length to truncate to
 
   // --- send ---
   CHOOSE_WORD: 18,    // emit data {id:18, data:<wordIndex>}

@@ -301,6 +301,9 @@ bot.on('draw', (segments) => {
   harvester?.add(segments);
 });
 bot.on('clear', () => { canvas.clear(); harvester?.startRound(); });
+// Undo (op21): drawer removed the last stroke — truncate to the new length so the
+// captured image matches what's actually on the canvas (not a mess).
+bot.on('undo', (len) => { if (bot.isDrawing) return; canvas.undo(len); harvester?.undo(len); });
 
 // Revealed letters (op13) — feed the guesser so it can narrow with confidence.
 bot.on('hints', ({ word, hints }) => {

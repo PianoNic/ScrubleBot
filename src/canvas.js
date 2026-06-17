@@ -15,29 +15,30 @@ const MARGIN = 0.12;   // fraction of padding around the drawing
 export class StrokeCanvas {
   constructor() { this.segments = []; }
 
-  /** Add op19 segments — pen [0,color,width,x1,y1,x2,y2] and fill [1,color,x,y],
-   *  preserving order (a fill colors the region as it was at that moment). */
+  /** Add op19 segments — pen [0,color,width,x1,y1,x2,y2] and fill [1,color,x,y].
+   *  The raw stream is kept in order (incl. white ink) so an undo's length maps
+   *  to it directly; white ink and fills are filtered at render time. */
   add(segments) {
     if (!Array.isArray(segments)) return;
     for (const s of segments) {
       if (!Array.isArray(s)) continue;
-      if (s[0] === TOOL.PEN && s.length >= 7) {
-        if (s[1] === 0) continue;      // skip white ink (eraser/background)
+      if ((s[0] === TOOL.PEN && s.length >= 7) || (s[0] === TOOL.FILL && s.length >= 4)) {
         this.segments.push(s);
-      } else if (s[0] === TOOL.FILL && s.length >= 4) {
-        this.segments.push(s);         // [1, color, x, y]
       }
     }
   }
 
+  /** Undo: truncate the stream to `len` segments (drops the last stroke/fill). */
+  undo(len) { this.segments = this.segments.slice(0, Math.max(0, len | 0)); }
+
   clear() { this.segments = []; }
   get isEmpty() { return this.segments.length === 0; }
 
-  /** Bounding box over the pen strokes (fills don't define the shape), or null. */
+  /** Bounding box over the visible pen strokes (skip white ink + fills), or null. */
   _bbox() {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, any = false;
     for (const s of this.segments) {
-      if (s[0] !== TOOL.PEN || s.length < 7) continue;
+      if (s[0] !== TOOL.PEN || s.length < 7 || s[1] === 0) continue;
       const [, , , x1, y1, x2, y2] = s;
       minX = Math.min(minX, x1, x2); maxX = Math.max(maxX, x1, x2);
       minY = Math.min(minY, y1, y2); maxY = Math.max(maxY, y1, y2);
@@ -66,8 +67,8 @@ export class StrokeCanvas {
 
     const hi = new Float32Array(HI * HI);
     const radius = Math.max(1, Math.round(0.9 * POOL)); // stroke half-thickness in hi-res px
-    for (const s of this.segments) {                    // pen only — doodleNet wants line-art
-      if (s[0] !== TOOL.PEN || s.length < 7) continue;
+    for (const s of this.segments) {                    // pen ink only — doodleNet wants line-art
+      if (s[0] !== TOOL.PEN || s.length < 7 || s[1] === 0) continue;
       this._line(hi, tx(s[3]), ty(s[4]), tx(s[5]), ty(s[6]), radius);
     }
 
