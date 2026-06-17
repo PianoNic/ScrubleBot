@@ -55,12 +55,19 @@ export class DoodleHarvester {
     if ((this.counts.get(key) || 0) >= MAX_PER_WORD) return { saved: false };
 
     const { drawing, colors } = segmentsToColoredStrokes(this.segments);
+    // Keep the ordered op19 list (pen + fills) only when a fill is present, so the
+    // trainer can rasterize fills. Non-fill rounds stay exactly as before.
+    const ops = this.segments.filter((s) =>
+      (s[0] === 0 && s.length >= 7 && s[1] !== 0) || (s[0] === 1 && s.length >= 4));
+    const hasFill = ops.some((s) => s[0] === 1);
     this.segments = [];
     if (!drawing.length) return { saved: false };
 
     // `colors` (parallel to `drawing`) lets the trainer rebuild a color-accurate
-    // RGB raster; older samples without it default to black at train time.
-    appendFileSync(FILE, JSON.stringify({ word: key, drawing, colors, ts: Date.now() }) + '\n');
+    // RGB raster; older samples without it default to black at train time. `ops`
+    // (added only for fill drawings) carries the ordered pen+fill sequence.
+    const rec = { word: key, drawing, colors, ...(hasFill ? { ops } : {}), ts: Date.now() };
+    appendFileSync(FILE, JSON.stringify(rec) + '\n');
     this.counts.set(key, (this.counts.get(key) || 0) + 1);
     this.total++;
     return { saved: true, word: key, strokes: drawing.length, total: this.total };

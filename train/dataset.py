@@ -8,7 +8,7 @@ from collections import Counter
 
 import numpy as np
 
-from raster import rasterize
+from raster import rasterize, rasterize_ops
 
 
 def load_samples(path):
@@ -36,7 +36,7 @@ def load_samples(path):
                 word, drawing = o.get("word"), o.get("drawing")
                 if word and isinstance(drawing, list) and drawing:
                     out.append({"word": word.lower(), "drawing": drawing,
-                                "colors": o.get("colors")})
+                                "colors": o.get("colors"), "ops": o.get("ops")})
     return out
 
 
@@ -47,19 +47,23 @@ def build_vocab(samples, min_per_word=1):
 
 
 def _raster_one(item):
-    """Worker: (drawing, colors, label) -> (raster_or_None, label)."""
-    drawing, colors, label = item
-    return rasterize(drawing, colors), label
+    """Worker: (drawing, colors, ops, label) -> (raster_or_None, label).
+    Uses the ordered ops (pen+fills) when present, else the pen-only drawing."""
+    drawing, colors, ops, label = item
+    r = rasterize_ops(ops) if ops else rasterize(drawing, colors)
+    return r, label
 
 
 def _signature(items, vocab):
     """Content hash of the (rasterizable) dataset, to validate the raster cache."""
     h = hashlib.sha1()
     h.update("|".join(vocab).encode())
-    for drawing, colors, label in items:
+    for drawing, colors, ops, label in items:
         h.update(repr(drawing).encode())
         if colors:
             h.update(repr(colors).encode())
+        if ops:
+            h.update(repr(ops).encode())
     return h.hexdigest()
 
 
@@ -71,7 +75,7 @@ def build_dataset(samples, vocab, cache_dir=None):
     """
     cache_dir = cache_dir or os.environ.get("MODEL_DIR", "data/model")
     idx = {w: i for i, w in enumerate(vocab)}
-    items = [(s["drawing"], s.get("colors"), idx[s["word"]]) for s in samples if s["word"] in idx]
+    items = [(s["drawing"], s.get("colors"), s.get("ops"), idx[s["word"]]) for s in samples if s["word"] in idx]
     if not items:
         return None, None
 
