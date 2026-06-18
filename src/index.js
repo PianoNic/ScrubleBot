@@ -155,8 +155,26 @@ function rejoinFresh(reason) {
   setTimeout(() => bot.join({ create: 0, join: '' }).catch((e) => log('rejoin failed:', e?.message)), 1500);
 }
 
+// Retry the *same* target — used when a code-join lands in the wrong/public room
+// (skribbl routing is flaky) or no lobby snapshot arrives. Capped + backed off.
+let joinRetries = 0, lobbyTimer = null;
+function rejoinSame(reason) {
+  if (shuttingDown) return;
+  clearTimeout(lobbyTimer);
+  if (++joinRetries > 15) { log(`⚠️  giving up rejoin after ${joinRetries} tries (${reason})`); joinRetries = 0; return; }
+  log(`🔁 ${reason} — retrying join (#${joinRetries})`);
+  releaseRoom(); guesser?.stop(); stopVision();
+  try { bot.close(); } catch { /* already closed */ }
+  setTimeout(() => bot.join({ create: cfg.create, join: cfg.join }).catch((e) => log('rejoin failed:', e?.message)),
+    2500 + Math.floor(Math.random() * 3000));
+}
+
 bot.on('server', ({ raw, origin, path }) => log('🛰  matchmaking →', raw, `(io ${origin} path ${path})`));
-bot.on('connect', () => log('🔌 connected, logging in as', cfg.name));
+bot.on('connect', () => {
+  log('🔌 connected, logging in as', cfg.name);
+  clearTimeout(lobbyTimer);                          // expect a lobby snapshot soon
+  lobbyTimer = setTimeout(() => rejoinSame('no lobby snapshot in 12s'), 12000);
+});
 bot.on('error', (e) => log('⚠️  error:', e?.message || e));
 bot.on('disconnect', (r) => {
   guesser?.stop();
@@ -170,6 +188,14 @@ bot.on('disconnect', (r) => {
 });
 
 bot.on('lobby', (room) => {
+  clearTimeout(lobbyTimer);
+  // We asked for a specific room but skribbl routed us elsewhere (often to public).
+  // Retry the same code until we actually land in it.
+  if (cfg.join && !cfg.create && room.id && room.id !== cfg.join) {
+    rejoinSame(`landed in ${room.id}, wanted "${cfg.join}"`);
+    return;
+  }
+  joinRetries = 0;   // we're where we asked to be
   // If matchmaking dropped us back into the room we just left, bounce again.
   if (cfg.leaveUndrawable && room.id && room.id === lastLeftRoom) {
     log(`   ↩ matchmade back into ${room.id} — leaving for a different lobby`);
