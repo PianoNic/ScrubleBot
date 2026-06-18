@@ -16,19 +16,25 @@ const PLAY_URL = 'https://skribbl.io/api/play';
  * @returns {Promise<{origin: string, path: string, raw: string}>}
  */
 export async function requestServer({ name, lang = 0, create = 0, join = '', avatar = [27, 30, 2, -1], proxy = '' }) {
-  // /api/play occasionally returns an empty body (rate-limit); retry a few times.
-  let raw = '';
-  for (let attempt = 0; attempt < 4 && !raw; attempt++) {
-    if (attempt) await new Promise((r) => setTimeout(r, 600));
-    const res = await fetch(PLAY_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, lang, create, join, avatar }),
-      ...(proxy ? { proxy } : {}),   // Bun fetch routes through the proxy
-    });
-    if (!res.ok) throw new Error(`/api/play returned ${res.status}`);
+  // /api/play rate-limits hard (503s + occasional empty bodies). Retry transient
+  // failures (503/429/5xx/network/empty) with exponential backoff + jitter.
+  let raw = '', lastErr = '';
+  for (let attempt = 0; attempt < 7 && !raw; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, Math.min(8000, 500 * 2 ** attempt) + Math.floor(Math.random() * 500)));
+    let res;
+    try {
+      res = await fetch(PLAY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, lang, create, join, avatar }),
+        ...(proxy ? { proxy } : {}),   // Bun fetch routes through the proxy
+      });
+    } catch (e) { lastErr = e.message; continue; }              // network error → retry
+    if (res.status === 429 || res.status >= 500) { lastErr = `${res.status}`; continue; } // transient → retry
+    if (!res.ok) throw new Error(`/api/play returned ${res.status}`);  // hard error (4xx)
     raw = (await res.text()).trim(); // e.g. "https://server3.skribbl.io:5005"
   }
+  if (!raw) throw new Error(`/api/play failed after retries (${lastErr || 'empty'})`);
 
   const m = raw.match(/^(https?):\/\/([^:/]+)(?::(\d+))?/i);
   if (!m) throw new Error(`Unexpected /api/play response: ${JSON.stringify(raw)}`);
