@@ -1,72 +1,48 @@
-// Harvest dashboard — a tiny Bun server (no build step) serving a single
-// shadcn-styled page: live stats, the running harvesters, and a gallery of the
-// drawings already collected. Reads the shared data/harvest volume. KISS.
+// Harvest dashboard — a tiny Bun server serving a single shadcn-styled page:
+// live stats, the running harvesters, and a gallery of the drawings collected.
+//
+// When DATABASE_URL is set it reads from Postgres (fast, indexed) and pushes
+// updates over a WebSocket — clients never poll HTTP, so it stays snappy no
+// matter how big the dataset grows. Without a DB it falls back to scanning the
+// legacy data/harvest/*.ndjson files. KISS.
 //   bun run src/dashboard.js   (PORT env, default 28080)
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { getCategories } from './quickdraw.js';
 import { PALETTE } from './protocol.js';
+import { dbEnabled } from '../db/index.js';
 
 const DIR = new URL('../data/harvest/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 const PORT = Number(process.env.PORT || 28080);
 
+// ───────────────────────── file-backed fallback (no DB) ─────────────────────
 const shardFiles = () => { try { return readdirSync(DIR).filter((f) => /^samples.*\.ndjson$/.test(f)); } catch { return []; } };
 
-function harvesters() {
+function fileHarvesters() {
   let files = [];
   try { files = readdirSync(DIR).filter((f) => /^stats\..*\.json$/.test(f)); } catch { return []; }
   const now = Date.now();
   return files.map((f) => {
-    try {
-      const d = JSON.parse(readFileSync(DIR + f, 'utf8'));
-      return { ...d, active: now - statSync(DIR + f).mtimeMs < 60000 };
-    } catch { return null; }
-  }).filter(Boolean).sort((a, b) => (b.active - a.active) || (b.rounds || 0) - (a.rounds || 0));
+    try { return { ...JSON.parse(readFileSync(DIR + f, 'utf8')), active: now - statSync(DIR + f).mtimeMs < 60000 }; }
+    catch { return null; }
+  }).filter(Boolean);
 }
 
-async function aggregate() {
+function fileWordCounts() {
   const counts = new Map();
-  let total = 0;
   for (const f of shardFiles()) {
     try {
       for (const line of readFileSync(DIR + f, 'utf8').split('\n')) {
         if (!line.trim()) continue;
-        try { const w = JSON.parse(line).word; if (w) { counts.set(w, (counts.get(w) || 0) + 1); total++; } } catch { /* skip */ }
+        try { const w = JSON.parse(line).word; if (w) counts.set(w, (counts.get(w) || 0) + 1); } catch { /* skip */ }
       }
     } catch { /* skip */ }
   }
-  const qd = await getCategories();
-  const words = [...counts.keys()];
-  const hs = harvesters();
-  const sum = (k) => hs.reduce((s, x) => s + (x[k] || 0), 0);
-  return {
-    drawings: total,
-    words: words.length,
-    newWords: words.filter((w) => !qd.has(w.toLowerCase())).length,
-    trainable: [...counts.values()].filter((c) => c >= 3).length,
-    online: hs.filter((h) => h.active).length,
-    guesses: sum('guesses'), wins: sum('wins'), rounds: sum('rounds'),
-    top: [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12),
-    harvesters: hs,
-  };
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]);
 }
 
-function recentDrawings(n = 24) {
-  const out = [];
-  for (const f of shardFiles()) {
-    try {
-      const lines = readFileSync(DIR + f, 'utf8').split('\n');
-      for (let i = Math.max(0, lines.length - n - 1); i < lines.length; i++) {
-        if (!lines[i].trim()) continue;
-        try { const o = JSON.parse(lines[i]); if (Array.isArray(o.drawing)) out.push({ word: o.word, drawing: o.drawing, colors: o.colors || [], ts: o.ts || 0 }); } catch { /* skip */ }
-      }
-    } catch { /* skip */ }
-  }
-  return out.sort((a, b) => b.ts - a.ts).slice(0, n);
-}
-
-function allDrawings(offset = 0, limit = 60, word = '', exact = false) {
-  const wq = word.trim().toLowerCase();
+function fileAll(offset, limit, word, exact) {
+  const wq = String(word || '').trim().toLowerCase();
   const out = [];
   for (const f of shardFiles()) {
     try {
@@ -85,33 +61,86 @@ function allDrawings(offset = 0, limit = 60, word = '', exact = false) {
   return { total: out.length, items: out.slice(offset, offset + limit) };
 }
 
-function wordCounts() {
-  const counts = new Map();
-  for (const f of shardFiles()) {
-    try {
-      for (const line of readFileSync(DIR + f, 'utf8').split('\n')) {
-        if (!line.trim()) continue;
-        try { const w = JSON.parse(line).word; if (w) counts.set(w, (counts.get(w) || 0) + 1); } catch { /* skip */ }
-      }
-    } catch { /* skip */ }
-  }
-  return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+// ───────────────────────── unified data layer (DB or files) ─────────────────
+async function getWords() {
+  if (dbEnabled) return (await import('../db/queries.js')).wordCounts();
+  return fileWordCounts();
+}
+async function getBots() {
+  if (dbEnabled) return (await import('../db/queries.js')).listBots();
+  return fileHarvesters();
+}
+async function getRecent(n = 24) {
+  if (dbEnabled) return (await import('../db/queries.js')).recentDrawings(n);
+  return fileAll(0, n, '', false).items;
+}
+async function getAll(offset = 0, limit = 60, word = '', exact = false) {
+  if (dbEnabled) return (await import('../db/queries.js')).allDrawings(offset, limit, word, exact);
+  return fileAll(offset, limit, word, exact);
 }
 
-const json = (o) => new Response(JSON.stringify(o), { headers: { 'content-type': 'application/json' } });
+async function aggregate() {
+  const wc = await getWords();                          // [[word,count], …] desc
+  const total = wc.reduce((s, [, c]) => s + c, 0);
+  const qd = await getCategories();
+  const hs = (await getBots()).sort((a, b) => (b.active - a.active) || (b.rounds || 0) - (a.rounds || 0));
+  const sum = (k) => hs.reduce((s, x) => s + (x[k] || 0), 0);
+  return {
+    drawings: total,
+    words: wc.length,
+    newWords: wc.filter(([w]) => !qd.has(String(w).toLowerCase())).length,
+    trainable: wc.filter(([, c]) => c >= 3).length,
+    online: hs.filter((h) => h.active).length,
+    guesses: sum('guesses'), wins: sum('wins'), rounds: sum('rounds'),
+    top: wc.slice(0, 12),
+    harvesters: hs,
+  };
+}
 
-Bun.serve({
+async function snapshot() {
+  return { type: 'snapshot', ts: Date.now(), stats: await aggregate(), recent: await getRecent(24) };
+}
+
+// ───────────────────────── server: page + WebSocket ─────────────────────────
+const clients = new Set();
+
+const server = Bun.serve({
   port: PORT,
-  async fetch(req) {
-    const { pathname, searchParams } = new URL(req.url);
-    if (pathname === '/api/stats') return json(await aggregate());
-    if (pathname === '/api/drawings') return json(recentDrawings(Number(searchParams.get('n') || 24)));
-    if (pathname === '/api/all') return json(allDrawings(Number(searchParams.get('offset') || 0), Number(searchParams.get('limit') || 60), searchParams.get('word') || '', searchParams.get('exact') === '1'));
-    if (pathname === '/api/words') return json(wordCounts());
+  fetch(req, srv) {
+    const { pathname } = new URL(req.url);
+    if (pathname === '/ws') { return srv.upgrade(req) ? undefined : new Response('upgrade failed', { status: 400 }); }
     return new Response(PAGE, { headers: { 'content-type': 'text/html; charset=utf-8' } });
   },
+  websocket: {
+    async open(ws) {
+      clients.add(ws);
+      try { ws.send(JSON.stringify(await snapshot())); } catch { /* client gone */ }
+    },
+    close(ws) { clients.delete(ws); },
+    async message(ws, raw) {
+      let m; try { m = JSON.parse(raw); } catch { return; }
+      try {
+        if (m.type === 'all') {
+          const r = await getAll(Number(m.offset || 0), Number(m.limit || 60), m.word || '', !!m.exact);
+          ws.send(JSON.stringify({ type: 'all', reqId: m.reqId, ...r }));
+        } else if (m.type === 'words') {
+          ws.send(JSON.stringify({ type: 'words', words: await getWords() }));
+        }
+      } catch (e) { try { ws.send(JSON.stringify({ type: 'error', error: e.message })); } catch { /* gone */ } }
+    },
+  },
 });
-console.log(`🎨 dashboard on http://localhost:${PORT}`);
+
+// One shared poll loop broadcasts a fresh snapshot to every client — a single DB
+// query per tick regardless of how many dashboards are open (the snappy part).
+setInterval(async () => {
+  if (!clients.size) return;
+  let payload;
+  try { payload = JSON.stringify(await snapshot()); } catch { return; }
+  for (const ws of clients) { try { ws.send(payload); } catch { /* drop */ } }
+}, 2000);
+
+console.log(`🎨 dashboard on http://localhost:${PORT}  (${dbEnabled ? 'postgres' : 'files'}, websocket live)`);
 
 const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>ScrubleBot Harvest</title>
@@ -123,6 +152,7 @@ font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif
 h1{font-size:20px;font-weight:600;margin:0;letter-spacing:-.01em}
 .sub{color:var(--muted);font-size:13px;margin-top:2px}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-right:6px;box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 25%,transparent)}
+.dot.off{background:var(--muted);box-shadow:0 0 0 3px color-mix(in srgb,var(--muted) 25%,transparent)}
 .grid{display:grid;gap:14px}.cards{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:22px 0}
 .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px}
 .label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:500}
@@ -170,13 +200,13 @@ padding:9px 18px;font-size:13px;cursor:pointer}.btn:hover{border-color:var(--acc
 .tabs{display:flex;gap:3px;margin-left:auto;background:var(--card);border:1px solid var(--border);border-radius:11px;padding:3px}
 .tabs button{background:none;border:0;color:var(--muted);font:inherit;font-size:13px;padding:6px 15px;border-radius:8px;cursor:pointer}
 .tabs button.active{background:var(--bg);color:var(--fg)}
-.upd{font-size:12px}.tab.hidden{display:none}
+.upd{font-size:12px;display:flex;align-items:center}.tab.hidden{display:none}
 @media(max-width:560px){.top{padding:11px 14px;gap:10px}.tabs{margin-left:0;width:100%;justify-content:space-between}.tabs button{flex:1;padding:7px 4px}.upd{display:none}}
 </style></head><body>
 <header class="top">
 <div class="brand">🎨 <b>ScrubleBot</b> <span class="muted">Harvest</span></div>
 <nav class="tabs" id="tabs"><button class="active" data-t="overview">Overview</button><button data-t="bots">Harvesters</button><button data-t="drawings">Drawings</button></nav>
-<div class="upd muted" id="updated">loading…</div>
+<div class="upd muted" id="updated"><span class="dot off"></span>connecting…</div>
 </header>
 <main class="wrap">
 <section class="tab" id="tab-overview">
@@ -213,28 +243,47 @@ function svg(d){
   return '<svg viewBox="'+xa+' '+ya+' '+w+' '+h+'" preserveAspectRatio="xMidYMid meet">'+p+'</svg>';
 }
 function card(label,val,sub){return '<div class="card"><div class="label">'+label+'</div><div class="stat">'+val+(sub?' <small>'+sub+'</small>':'')+'</div></div>';}
-async function tick(){
-  try{
-    const s=await (await fetch('/api/stats')).json();
-    document.getElementById('updated').textContent='updated '+new Date().toLocaleTimeString();
-    document.getElementById('cards').innerHTML=
-      card('Drawings',s.drawings.toLocaleString())+
-      card('Unique words',s.words.toLocaleString())+
-      card('New (non-QuickDraw)',s.newWords.toLocaleString())+
-      card('Trainable (≥3)',s.trainable.toLocaleString())+
-      card('Win / Guess',pct(s.wins,s.guesses),s.wins+'/'+s.guesses)+
-      card('Rounds watched',s.rounds.toLocaleString());
-    lastBots=s.harvesters;renderBots();
-    document.getElementById('top').innerHTML=s.top.map(([w,c])=>'<span class="chip">'+esc(w)+'<b>'+c+'</b></span>').join('');
-    const ds=await (await fetch('/api/drawings?n=24')).json();
-    document.getElementById('gallery').innerHTML=ds.map(tile).join('')||'<div class="muted">nothing harvested yet</div>';
-  }catch(e){document.getElementById('updated').textContent='error: '+e.message;}
+function renderStats(s){
+  document.getElementById('cards').innerHTML=
+    card('Drawings',s.drawings.toLocaleString())+
+    card('Unique words',s.words.toLocaleString())+
+    card('New (non-QuickDraw)',s.newWords.toLocaleString())+
+    card('Trainable (≥3)',s.trainable.toLocaleString())+
+    card('Win / Guess',pct(s.wins,s.guesses),s.wins+'/'+s.guesses)+
+    card('Rounds watched',s.rounds.toLocaleString());
+  lastBots=s.harvesters||[];renderBots();
+  document.getElementById('top').innerHTML=(s.top||[]).map(([w,c])=>'<span class="chip">'+esc(w)+'<b>'+c+'</b></span>').join('');
 }
+// ── WebSocket: live snapshots pushed by the server; requests for the paginated
+//    "all drawings" + word list go over the same socket. Auto-reconnect on drop.
+let ws=null,wsTimer=null,reqId=0,pending={};
+function setStatus(on,txt){document.getElementById('updated').innerHTML='<span class="dot'+(on?'':' off')+'"></span>'+txt;}
+function connect(){
+  ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');
+  ws.onopen=()=>setStatus(true,'live');
+  ws.onclose=()=>{setStatus(false,'reconnecting…');clearTimeout(wsTimer);wsTimer=setTimeout(connect,2000);};
+  ws.onerror=()=>{try{ws.close();}catch(e){}};
+  ws.onmessage=ev=>{
+    let m;try{m=JSON.parse(ev.data);}catch(e){return;}
+    if(m.type==='snapshot'){
+      renderStats(m.stats);
+      setStatus(true,'live · '+new Date(m.ts).toLocaleTimeString());
+      document.getElementById('gallery').innerHTML=(m.recent||[]).map(tile).join('')||'<div class="muted">nothing harvested yet</div>';
+    }else if(m.type==='words'){
+      const ws2=m.words||[];
+      document.getElementById('wordsel').innerHTML='<option value="">All words ('+ws2.length+')</option>'+ws2.map(([w,c])=>'<option value="'+esc(w)+'">'+esc(w)+' ('+c+')</option>').join('');
+    }else if(m.type==='all'){
+      const cb=pending[m.reqId];if(cb){delete pending[m.reqId];cb(m);}
+    }
+  };
+}
+function send(o){try{ws&&ws.readyState===1&&ws.send(JSON.stringify(o));}catch(e){}}
+function reqAll(opts){return new Promise(res=>{const id=++reqId;pending[id]=res;send({type:'all',reqId:id,...opts});setTimeout(()=>{if(pending[id]){delete pending[id];res({total:0,items:[]});}},8000);});}
 // "All drawings" — paginated, with a word dropdown + free-text filter.
 let off=0,word='',exact=false,total=0;
 async function loadAll(reset){
   if(reset){off=0;document.getElementById('allgallery').innerHTML='';}
-  const r=await (await fetch('/api/all?offset='+off+'&limit=60&word='+encodeURIComponent(word)+(exact?'&exact=1':''))).json();
+  const r=await reqAll({offset:off,limit:60,word,exact});
   total=r.total;off+=r.items.length;
   document.getElementById('allgallery').insertAdjacentHTML('beforeend',r.items.map(tile).join(''));
   document.getElementById('allcount').textContent='('+total+')';
@@ -242,17 +291,15 @@ async function loadAll(reset){
   if(total===0)document.getElementById('allgallery').innerHTML='<div class="muted">no matches</div>';
 }
 function setFilter(w,ex){word=w;exact=ex;loadAll(true);}
-async function fillWords(){try{const ws=await (await fetch('/api/words')).json();
-  document.getElementById('wordsel').innerHTML='<option value="">All words ('+ws.length+')</option>'+ws.map(([w,c])=>'<option value="'+esc(w)+'">'+esc(w)+' ('+c+')</option>').join('');}catch(e){}}
 document.getElementById('more').onclick=()=>loadAll(false);
 document.getElementById('wordsel').onchange=e=>{document.getElementById('search').value='';setFilter(e.target.value,true);};
 let st;document.getElementById('search').oninput=()=>{clearTimeout(st);st=setTimeout(()=>{document.getElementById('wordsel').value='';setFilter(document.getElementById('search').value,false);},300);};
-// harvesters: top 6, rest behind a toggle
+// harvesters: all active shown; idle behind a toggle
 let lastBots=[],botsExpanded=false;
 function botRow(h){return '<tr><td>'+esc(h.name||'?')+'</td><td class="num">'+(h.rounds||0)+'</td><td class="num">'+(h.guesses||0)+'</td><td class="num">'+(h.wins||0)+'</td><td class="num">'+pct(h.wins||0,h.guesses||0)+'</td><td><span class="badge'+(h.active?'':' off')+'">'+(h.active?'live':'idle')+'</span></td><td>'+(h.active&&h.room?'<a class="link" href="https://skribbl.io/?'+esc(h.room)+'" target="_blank" rel="noopener">join ↗</a>':'<span class="muted">—</span>')+'</td></tr>';}
 function renderBots(){
   const active=lastBots.filter(h=>h.active), idle=lastBots.filter(h=>!h.active);
-  const rows=botsExpanded?active.concat(idle):active;   // always show ALL active; idle behind the toggle
+  const rows=botsExpanded?active.concat(idle):active;
   document.getElementById('bots').innerHTML=rows.map(botRow).join('')||'<tr><td colspan="7" class="muted" style="padding:14px 12px">no active harvesters</td></tr>';
   const b=document.getElementById('botsmore');
   if(idle.length){b.style.display='';b.textContent=botsExpanded?('Hide '+idle.length+' idle'):('Show '+idle.length+' idle');}else b.style.display='none';
@@ -263,7 +310,7 @@ let loadedAll=false;const tabs=document.getElementById('tabs');
 tabs.onclick=e=>{const b=e.target.closest('button');if(!b)return;
   [...tabs.children].forEach(x=>x.classList.toggle('active',x===b));
   ['overview','bots','drawings'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden',t!==b.dataset.t));
-  if(b.dataset.t==='drawings'&&!loadedAll){loadedAll=true;fillWords();loadAll(true);}
+  if(b.dataset.t==='drawings'&&!loadedAll){loadedAll=true;send({type:'words'});loadAll(true);}
 };
 // click any drawing to enlarge it
 const modal=document.getElementById('modal');
@@ -273,5 +320,5 @@ document.addEventListener('click',e=>{const t=e.target.closest('.tile');
     modal.classList.remove('hidden');return;}
   if(e.target===modal)modal.classList.add('hidden');});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')modal.classList.add('hidden');});
-tick();setInterval(tick,5000);
+connect();
 </script></body></html>`;

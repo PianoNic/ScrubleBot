@@ -12,9 +12,17 @@ from raster import rasterize, rasterize_ops
 
 
 def load_samples(path):
-    """Read every harvest shard (samples*.ndjson alongside `path`) into
-    [{word, drawing, colors}], skipping bad lines. Supports a fleet of harvest
-    bots each writing its own shard."""
+    """Load harvested samples as [{word, drawing, colors, ops}].
+
+    Prefers Postgres when DATABASE_URL is set (the bots now write straight to the
+    DB); otherwise reads every ndjson shard (samples*.ndjson) alongside `path`,
+    so legacy datasets and offline runs still work."""
+    if os.environ.get("DATABASE_URL"):
+        rows = _load_from_db()
+        if rows is not None:
+            return rows
+        print("  DATABASE_URL set but DB load failed — falling back to ndjson")
+
     import glob
     out = []
     directory = os.path.dirname(path) or "."
@@ -38,6 +46,31 @@ def load_samples(path):
                     out.append({"word": word.lower(), "drawing": drawing,
                                 "colors": o.get("colors"), "ops": o.get("ops")})
     return out
+
+
+def _load_from_db():
+    """Pull every drawing from Postgres. Returns None if the driver/connection
+    isn't available so the caller can fall back to ndjson."""
+    try:
+        import psycopg
+    except ImportError:
+        print("  psycopg not installed — cannot read from DB")
+        return None
+    try:
+        out = []
+        with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+            with conn.cursor(name="harvest_stream") as cur:   # server-side cursor (streams large tables)
+                cur.itersize = 2000
+                cur.execute("SELECT word, drawing, colors, ops FROM drawings")
+                for word, drawing, colors, ops in cur:
+                    if word and isinstance(drawing, list) and drawing:
+                        out.append({"word": word.lower(), "drawing": drawing,
+                                    "colors": colors, "ops": ops})
+        print(f"  loaded {len(out)} samples from Postgres")
+        return out
+    except Exception as e:  # noqa: BLE001 — any DB error → ndjson fallback
+        print(f"  DB read error: {e}")
+        return None
 
 
 def build_vocab(samples, min_per_word=1):

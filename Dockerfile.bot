@@ -10,6 +10,8 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
 COPY src ./src
+COPY db ./db
+COPY drizzle.config.js ./
 COPY data/doodlenet ./data/doodlenet
 COPY data/wordlists ./data/wordlists
 COPY data/drawable_words.txt ./data/drawable_words.txt

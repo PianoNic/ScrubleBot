@@ -11,16 +11,24 @@
     "harvest": "bun run src/harvest-stats.js",
     "dashboard": "bun run src/dashboard.js",
     "proxies": "bun run src/proxy-scan.js",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "bun run db/migrate.js",
+    "db:import": "bun run db/import-ndjson.js",
     "test": "bun test/smoke.js"
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.22.0",
+    "drizzle-orm": "^0.45.2",
     "https-proxy-agent": "^9.1.0",
     "onnxruntime-node": "^1.26.0",
+    "postgres": "^3.4.9",
     "socket.io-client": "^4.8.1",
     "socks-proxy-agent": "^10.1.0"
   },
   "trustedDependencies": [
     "onnxruntime-node"
-  ]
+  ],
+  "devDependencies": {
+    "drizzle-kit": "^0.31.10"
+  }
 }

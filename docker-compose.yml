@@ -1,18 +1,55 @@
-# Two services sharing ./data: the bot harvests into it, the trainer trains from
-# it and writes detector.onnx back, the bot hot-reloads. The trainer reaches the
-# vision LLM (Ollama) on the host via host.docker.internal.
+# Bot + trainer + Postgres, all sharing ./data and one database: the bot harvests
+# straight into Postgres, the trainer reads from it (and writes detector.onnx back
+# to ./data/model), the bot hot-reloads. The trainer reaches the vision LLM
+# (Ollama) on the host via host.docker.internal.
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-scruble}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-scruble}
+      - POSTGRES_DB=${POSTGRES_DB:-scruble}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    command: ["postgres", "-c", "max_connections=200"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-scruble} -d ${POSTGRES_DB:-scruble}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # One-shot: create the schema (+ import legacy ndjson the first time), then exit.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    command: ["bun", "run", "db/migrate.js"]
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-scruble}:${POSTGRES_PASSWORD:-scruble}@db:5432/${POSTGRES_DB:-scruble}
+      - IMPORT_NDJSON=${IMPORT_NDJSON:-1}
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
   bot:
     build:
       context: .
       dockerfile: Dockerfile.bot
     environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-scruble}:${POSTGRES_PASSWORD:-scruble}@db:5432/${POSTGRES_DB:-scruble}
       - BOT_NAME=${BOT_NAME:-ScrubleBot}
       - BOT_JOIN=${BOT_JOIN:-}
       - BOT_CREATE=${BOT_CREATE:-0}
       - BOT_MODELS=1
     volumes:
       - ./data:/app/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   trainer:
@@ -35,6 +72,7 @@ services:
       - --epochs
       - ${EPOCHS:-40}
     environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-scruble}:${POSTGRES_PASSWORD:-scruble}@db:5432/${POSTGRES_DB:-scruble}
       - LLM_CLEAN=${LLM_CLEAN:-1}
       - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434/v1}
       - OLLAMA_VISION_MODEL=${OLLAMA_VISION_MODEL:-qwen2.5vl:7b}
@@ -42,6 +80,9 @@ services:
       - ./data:/app/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     deploy:
       resources:
         reservations:
@@ -50,3 +91,6 @@ services:
               count: all
               capabilities: [gpu]
     restart: unless-stopped
+
+volumes:
+  pgdata:
