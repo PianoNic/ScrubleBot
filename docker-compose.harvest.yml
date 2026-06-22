@@ -1,4 +1,4 @@
-# Harvest-only fleet — lightweight bots that collect training data.
+# Harvest-only fleet — lightweight bots that collect training data into Postgres.
 #
 # Each bot joins a public game, watches + records the drawings it sees, and on its
 # own turn: draws a QuickDraw word if it can, otherwise LEAVES and rejoins a fresh
@@ -7,9 +7,46 @@
 #
 #   docker compose -f docker-compose.harvest.yml up --build --scale harvester=4
 #
-# Each container writes its own shard at ./data/harvest/samples.<container>.ndjson
-# (safe concurrent writes); the trainer reads every shard automatically.
+# All bots write straight to one Postgres `drawings` table (concurrent-safe — no
+# more shared-file corruption). The dashboard reads from the same DB and pushes
+# live updates over a WebSocket. The one-shot `migrate` service creates the schema
+# (and imports any pre-existing ./data/harvest/*.ndjson the first time) before the
+# fleet starts. The trainer reads the DB too.
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-scruble}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-scruble}
+      - POSTGRES_DB=${POSTGRES_DB:-scruble}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Tuned for many concurrent bot writers.
+    command: ["postgres", "-c", "max_connections=200"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-scruble} -d ${POSTGRES_DB:-scruble}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # One-shot: apply migrations + import existing ndjson, then exit. The bots and
+  # dashboard wait for it to finish successfully.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    command: ["bun", "run", "db/migrate.js"]
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-scruble}:${POSTGRES_PASSWORD:-scruble}@db:5432/${POSTGRES_DB:-scruble}
+      - IMPORT_NDJSON=${IMPORT_NDJSON:-1}   # import legacy ndjson on first run (skipped once the table has rows)
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
   harvester:
     build:
       context: .
@@ -17,11 +54,12 @@ services:
     environment:
       # Defaults = lightweight, silent harvesting. Override via env without editing
       # this file, e.g.  BOT_GUESS=1 BOT_VISION=1 docker compose -f … up
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-scruble}:${POSTGRES_PASSWORD:-scruble}@db:5432/${POSTGRES_DB:-scruble}
       - BOT_GUESS=${BOT_GUESS:-0}        # 1 = also guess in chat (needs vision)
       - BOT_VISION=${BOT_VISION:-0}      # 1 = load doodleNet (heavier; needed to guess well)
       - BOT_MODELS=${BOT_MODELS:-0}      # 1 = load the trained ONNX detector
       - BOT_LEARN=1              # harvest on
-      - BOT_SHARD=1              # per-container harvest file
+      - BOT_SHARD=1              # per-container bot id (used as the bots-table key)
       - BOT_NAME_RANDOM=1        # believable human-ish name per bot
       - BOT_LEAVE_UNDRAWABLE=1   # leave + rejoin when it can't draw its word
       - BOT_SOLO_LOBBY=${BOT_SOLO_LOBBY:-1}   # leave if another of our bots is already in the lobby
@@ -31,10 +69,13 @@ services:
     volumes:
       - ./data:/app/data
       - ./proxies:/app/proxies:ro     # drop proxy files here; each bot claims its own
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
 
-  # Always-on dashboard (one container): live stats + the harvested drawings.
-  # Open http://localhost:28080 (set DASHBOARD_PORT to change).
+  # Always-on dashboard (one container): live stats + the harvested drawings,
+  # served from Postgres over a WebSocket. Open http://localhost:28080.
   dashboard:
     build:
       context: .
@@ -42,8 +83,15 @@ services:
     command: ["bun", "run", "src/dashboard.js"]
     environment:
       - PORT=8080
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-scruble}:${POSTGRES_PASSWORD:-scruble}@db:5432/${POSTGRES_DB:-scruble}
     ports:
       - "${DASHBOARD_PORT:-28080}:8080"
     volumes:
       - ./data:/app/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
+
+volumes:
+  pgdata:

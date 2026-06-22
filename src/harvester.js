@@ -6,6 +6,7 @@
 
 import { appendFileSync, mkdirSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { segmentsToColoredStrokes } from './strokes.js';
+import { dbEnabled } from '../db/index.js';
 
 const DIR = new URL('../data/harvest/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 // Each process writes its own shard when BOT_SHARD=1 (or BOT_INSTANCE is set), so
@@ -22,8 +23,18 @@ export class DoodleHarvester {
     this.segments = [];
     this.counts = new Map();   // word -> samples saved
     this.total = 0;
+    if (dbEnabled) { this._loadFromDb(); return; }   // async; seeds counts in the background
     if (!existsSync(DIR)) mkdirSync(DIR, { recursive: true });
     this._loadIndex();
+  }
+
+  // DB-backed seed of the per-word cap counters. Async — there's a brief window at
+  // startup where counts read 0 (cap not yet enforced); that's fine (KISS).
+  async _loadFromDb() {
+    try {
+      const { loadWordCounts } = await import('../db/queries.js');
+      for (const [w, c] of await loadWordCounts()) { this.counts.set(w, c); this.total += c; }
+    } catch (e) { console.error('harvester: DB count load failed:', e.message); }
   }
 
   _loadIndex() {
@@ -69,7 +80,15 @@ export class DoodleHarvester {
     // RGB raster; older samples without it default to black at train time. `ops`
     // (added only for fill drawings) carries the ordered pen+fill sequence.
     const rec = { word: key, drawing, colors, ...(hasFill ? { ops } : {}), ts: Date.now() };
-    appendFileSync(FILE, JSON.stringify(rec) + '\n');
+    if (dbEnabled) {
+      // Write straight to Postgres (concurrent-safe across all containers). Async
+      // insert is fire-and-forget so finish() stays synchronous for the caller.
+      import('../db/queries.js')
+        .then(({ insertDrawing }) => insertDrawing({ ...rec, bot: SHARD }))
+        .catch((e) => console.error('harvester: DB insert failed:', e.message));
+    } else {
+      appendFileSync(FILE, JSON.stringify(rec) + '\n');
+    }
     this.counts.set(key, (this.counts.get(key) || 0) + 1);
     this.total++;
     return { saved: true, word: key, strokes: drawing.length, total: this.total };

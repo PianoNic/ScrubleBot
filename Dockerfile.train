@@ -13,7 +13,7 @@ WORKDIR /app
 
 # torch ships in the base image; install the rest.
 COPY train/requirements.txt ./train/requirements.txt
-RUN pip install --no-cache-dir numpy onnx pillow
+RUN pip install --no-cache-dir numpy onnx pillow "psycopg[binary]"
 
 COPY train ./train
 
